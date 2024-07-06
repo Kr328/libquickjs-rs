@@ -1,0 +1,13 @@
+[package]
+name = "libquickjs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+memchr = "2.7"
+bitflags = "2.6"
+slab = "0.4"
+rquickjs-sys = "0.6"
+
+[dev-dependencies]
+rquickjs-sys = { version = "0.6", features = ["bindgen"] }
