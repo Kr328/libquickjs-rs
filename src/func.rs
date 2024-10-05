@@ -1,20 +1,39 @@
-use rquickjs_sys::{JSClassID, JS_NewClassID};
+use crate::{
+    class::{CallOptions, Class},
+    value::{Object, Value},
+    Context,
+};
 
-use crate::{error::Error, Context};
+pub struct NativeFunction<F>
+where
+    F: for<'rt> Fn(&Context<'rt>, &Object, &Value, &[Value], CallOptions) -> Result<Value<'rt>, Value<'rt>> + Send + 'static,
+{
+    func: F,
+}
 
-pub struct FunctionID(JSClassID);
-
-impl FunctionID {
-    pub(crate) fn js_class_id(&self) -> JSClassID {
-        unsafe { JS_NewClassID(&self.0 as *const _ as _) }
+impl<F> NativeFunction<F>
+where
+    F: for<'rt> Fn(&Context<'rt>, &Object, &Value, &[Value], CallOptions) -> Result<Value<'rt>, Value<'rt>> + Send + 'static,
+{
+    pub fn new(func: F) -> Self {
+        Self { func }
     }
 }
 
-pub trait Function {
-    type Data: Send + 'static;
+impl<F> Class for NativeFunction<F>
+where
+    F: for<'rt> Fn(&Context<'rt>, &Object, &Value, &[Value], CallOptions) -> Result<Value<'rt>, Value<'rt>> + Send + 'static,
+{
+    const NAME: &'static str = "NativeFunction";
 
-    fn id() -> &'static FunctionID;
-
-    fn call(ctx: &mut Context, this: &u32, args: &[u32]) -> Result<(), Error>;
-    fn construct(ctx: &mut Context, this: &u32, args: &[u32]) -> Result<(), Error>;
+    fn call<'rt>(
+        &self,
+        ctx: &Context<'rt>,
+        func: &Object,
+        this: &Value,
+        args: &[Value],
+        options: CallOptions,
+    ) -> Result<Value<'rt>, Value<'rt>> {
+        (self.func)(ctx, func, this, args, options)
+    }
 }
