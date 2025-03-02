@@ -26,15 +26,19 @@ use rquickjs_sys::{
     JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom,
 };
 
-use crate::utils::{enforce_not_out_of_memory, Global, GlobalHolder, MaybeTinyCString, MaybeTinyVec};
+use crate::utils::{
+    cstr::MaybeTinyCString,
+    global::{Global, GlobalHolder},
+    ptr::enforce_not_out_of_memory,
+    vec::MaybeTinyVec,
+};
+pub use crate::{atom::*, class::*, func::*, value::*};
 
 mod atom;
 mod class;
 mod func;
 mod utils;
 mod value;
-
-pub use crate::{atom::*, class::*, func::*, value::*};
 
 #[derive(Debug)]
 pub struct InvalidRuntime;
