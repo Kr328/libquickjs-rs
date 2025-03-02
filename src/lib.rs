@@ -1,7 +1,7 @@
 use std::{
     any::TypeId,
     cell::RefCell,
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     ffi::CString,
     fmt::{Debug, Display, Formatter},
     mem::ManuallyDrop,
@@ -11,7 +11,7 @@ use std::{
 
 use bitflags::bitflags;
 use rquickjs_sys::{
-    js_free, JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBigInt, JS_AddIntrinsicDate, JS_AddIntrinsicEval, JS_AddIntrinsicJSON,
+    JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBigInt, JS_AddIntrinsicDate, JS_AddIntrinsicEval, JS_AddIntrinsicJSON,
     JS_AddIntrinsicMapSet, JS_AddIntrinsicPromise, JS_AddIntrinsicProxy, JS_AddIntrinsicRegExp, JS_AddIntrinsicRegExpCompiler,
     JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2, JS_DeleteProperty,
     JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_Eval, JS_EvalThis, JS_FreeAtomRT, JS_FreeCString,
@@ -24,7 +24,7 @@ use rquickjs_sys::{
     JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject, JS_RunGC, JS_SetClassProto, JS_SetConstructorBit,
     JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype,
     JS_SetRuntimeOpaque, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex,
-    JS_ToInt32, JS_ToInt64Ext, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom, JS_WriteObject,
+    JS_ToInt32, JS_ToInt64Ext, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom, JS_WriteObject, js_free,
 };
 
 use crate::utils::{
@@ -496,11 +496,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_ToBool(self.ptr.as_ptr(), v.as_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(ret != 0)
-            }
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
 
@@ -720,15 +716,17 @@ impl<'rt> Context<'rt> {
                     class_name: name.as_ptr(),
                     finalizer: {
                         unsafe extern "C" fn finalizer<C: Class>(rt: *mut rquickjs_sys::JSRuntime, val: rquickjs_sys::JSValue) {
-                            let rt = ManuallyDrop::new(Runtime {
-                                rt_ptr: NonNull::new(rt).unwrap(),
-                            });
+                            unsafe {
+                                let rt = ManuallyDrop::new(Runtime {
+                                    rt_ptr: NonNull::new(rt).unwrap(),
+                                });
 
-                            let ptr = JS_GetOpaque(val, rt.get_or_alloc_class_id::<C>());
-                            if !ptr.is_null() {
-                                drop(Box::from_raw(ptr as *mut C))
+                                let ptr = JS_GetOpaque(val, rt.get_or_alloc_class_id::<C>());
+                                if !ptr.is_null() {
+                                    drop(Box::from_raw(ptr as *mut C))
+                                }
+                                JS_SetOpaque(val, std::ptr::null_mut());
                             }
-                            JS_SetOpaque(val, std::ptr::null_mut());
                         }
 
                         Some(finalizer::<C>)
@@ -758,9 +756,9 @@ impl<'rt> Context<'rt> {
                                 rt_ptr: NonNull::new(rt).unwrap(),
                             });
 
-                            let ptr = JS_GetOpaque(val, rt.get_or_alloc_class_id::<C>()) as *const C;
-                            if !ptr.is_null() {
-                                unsafe {
+                            unsafe {
+                                let ptr = JS_GetOpaque(val, rt.get_or_alloc_class_id::<C>()) as *const C;
+                                if !ptr.is_null() {
                                     (*ptr).gc_mark(&Marker {
                                         rt: rt.as_raw(),
                                         mark_func,
@@ -780,44 +778,46 @@ impl<'rt> Context<'rt> {
                             argv: *mut rquickjs_sys::JSValue,
                             flags: std::ffi::c_int,
                         ) -> rquickjs_sys::JSValue {
-                            let rt = ManuallyDrop::new(Runtime {
-                                rt_ptr: NonNull::new(JS_GetRuntime(ctx)).unwrap(),
-                            });
-                            let ctx = ManuallyDrop::new(Context {
-                                rt: &rt,
-                                ptr: NonNull::new(ctx).unwrap(),
-                            });
+                            unsafe {
+                                let rt = ManuallyDrop::new(Runtime {
+                                    rt_ptr: NonNull::new(JS_GetRuntime(ctx)).unwrap(),
+                                });
+                                let ctx = ManuallyDrop::new(Context {
+                                    rt: &rt,
+                                    ptr: NonNull::new(ctx).unwrap(),
+                                });
 
-                            let data = JS_GetOpaque(func_obj, JS_GetClassID(func_obj)) as *mut C;
-                            if data.is_null() {
-                                panic!("unexpected function obj");
+                                let data = JS_GetOpaque(func_obj, JS_GetClassID(func_obj)) as *mut C;
+                                if data.is_null() {
+                                    panic!("unexpected function obj");
+                                }
+
+                                let func = match Value::from_raw(&rt, func_obj).unwrap() {
+                                    Value::Object(obj) => ManuallyDrop::new(obj),
+                                    v => panic!("invalid function object: {:?}", v),
+                                };
+                                let this = ManuallyDrop::new(Value::from_raw(&rt, this_val).unwrap());
+                                let args = (0..argc)
+                                    .into_iter()
+                                    .map(|v| ManuallyDrop::new(Value::from_raw(&rt, argv.offset(v as _).read()).unwrap()))
+                                    .collect::<Vec<_>>();
+                                let options = CallOptions {
+                                    constructor: (flags as u32) & rquickjs_sys::JS_CALL_FLAG_CONSTRUCTOR > 0,
+                                };
+
+                                let ret = match (*data).call(
+                                    &ctx,
+                                    &func,
+                                    &this,
+                                    std::slice::from_raw_parts(args.as_ptr() as _, args.len()),
+                                    options,
+                                ) {
+                                    Ok(v) => v.into_raw(),
+                                    Err(err) => JS_Throw(ctx.ptr.as_ptr(), err.into_raw()),
+                                };
+
+                                ret
                             }
-
-                            let func = match Value::from_raw(&rt, func_obj).unwrap() {
-                                Value::Object(obj) => ManuallyDrop::new(obj),
-                                v => panic!("invalid function object: {:?}", v),
-                            };
-                            let this = ManuallyDrop::new(Value::from_raw(&rt, this_val).unwrap());
-                            let args = (0..argc)
-                                .into_iter()
-                                .map(|v| ManuallyDrop::new(Value::from_raw(&rt, argv.offset(v as _).read()).unwrap()))
-                                .collect::<Vec<_>>();
-                            let options = CallOptions {
-                                constructor: (flags as u32) & rquickjs_sys::JS_CALL_FLAG_CONSTRUCTOR > 0,
-                            };
-
-                            let ret = match (*data).call(
-                                &ctx,
-                                &func,
-                                &this,
-                                std::slice::from_raw_parts(args.as_ptr() as _, args.len()),
-                                options,
-                            ) {
-                                Ok(v) => v.into_raw(),
-                                Err(err) => JS_Throw(ctx.ptr.as_ptr(), err.into_raw()),
-                            };
-
-                            ret
                         }
 
                         Some(call::<C>)
@@ -897,11 +897,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_IsArray(self.ptr.as_ptr(), value.as_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(ret != 0)
-            }
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
 
@@ -941,11 +937,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_SetProperty(self.ptr.as_ptr(), obj.as_raw(), prop.as_raw(), value.into_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(())
-            }
+            if ret < 0 { Err(Exception) } else { Ok(()) }
         })
     }
 
@@ -957,11 +949,7 @@ impl<'rt> Context<'rt> {
             let prop = self.new_c_string::<64>(prop)?;
 
             let ret = JS_SetPropertyStr(self.ptr.as_ptr(), obj.as_raw(), prop.as_ptr(), value.into_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(())
-            }
+            if ret < 0 { Err(Exception) } else { Ok(()) }
         })
     }
 
@@ -971,11 +959,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_SetPropertyUint32(self.ptr.as_ptr(), obj.as_raw(), prop, value.into_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(())
-            }
+            if ret < 0 { Err(Exception) } else { Ok(()) }
         })
     }
 
@@ -985,11 +969,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_SetPropertyInt64(self.ptr.as_ptr(), obj.as_raw(), prop, value.into_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(())
-            }
+            if ret < 0 { Err(Exception) } else { Ok(()) }
         })
     }
 
@@ -999,11 +979,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_HasProperty(self.ptr.as_ptr(), obj.as_raw(), prop.as_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(ret != 0)
-            }
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
 
@@ -1013,11 +989,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_DeleteProperty(self.ptr.as_ptr(), obj.as_raw(), prop.as_raw(), 0);
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(ret != 0)
-            }
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
 
@@ -1026,11 +998,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_IsExtensible(self.ptr.as_ptr(), obj.as_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(ret != 0)
-            }
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
 
@@ -1039,11 +1007,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_PreventExtensions(self.ptr.as_ptr(), obj.as_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(ret != 0)
-            }
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
 
@@ -1062,11 +1026,7 @@ impl<'rt> Context<'rt> {
 
         self.try_catch(|| unsafe {
             let ret = JS_SetPrototype(self.ptr.as_ptr(), obj.as_raw(), proto.as_raw());
-            if ret < 0 {
-                Err(Exception)
-            } else {
-                Ok(ret != 0)
-            }
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
 

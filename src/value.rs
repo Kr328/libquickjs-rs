@@ -4,10 +4,10 @@ use std::{
 };
 
 use rquickjs_sys::{
-    JSValue, JSValueUnion, JS_FreeCString, JS_NewFloat64, JS_ToCStringLen, JS_EXCEPTION, JS_MKPTR, JS_MKVAL, JS_NULL,
-    JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_CATCH_OFFSET, JS_TAG_EXCEPTION, JS_TAG_FLOAT64, JS_TAG_FUNCTION_BYTECODE, JS_TAG_INT,
-    JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_TAG_UNINITIALIZED,
-    JS_UNDEFINED, JS_UNINITIALIZED, JS_VALUE_IS_NAN,
+    JS_EXCEPTION, JS_FreeCString, JS_MKPTR, JS_MKVAL, JS_NULL, JS_NewFloat64, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_CATCH_OFFSET,
+    JS_TAG_EXCEPTION, JS_TAG_FLOAT64, JS_TAG_FUNCTION_BYTECODE, JS_TAG_INT, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_OBJECT,
+    JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_TAG_UNINITIALIZED, JS_ToCStringLen, JS_UNDEFINED, JS_UNINITIALIZED,
+    JS_VALUE_IS_NAN, JSValue, JSValueUnion,
 };
 
 use crate::Runtime;
@@ -186,28 +186,34 @@ impl From<f64> for Value<'_> {
 
 impl<'rt> Value<'rt> {
     pub unsafe fn from_raw(rt: &'rt Runtime, value: JSValue) -> Result<Self, Exception> {
-        #[inline]
-        unsafe fn ref_value<'rt, const TAG: i32, T: 'rt>(f: fn(RefValue<'rt, TAG>) -> T, rt: &'rt Runtime, value: JSValue) -> T {
-            f(RefValue::<TAG> { rt, ptr: value.u.ptr })
-        }
+        unsafe {
+            #[inline]
+            unsafe fn ref_value<'rt, const TAG: i32, T: 'rt>(
+                f: fn(RefValue<'rt, TAG>) -> T,
+                rt: &'rt Runtime,
+                value: JSValue,
+            ) -> T {
+                unsafe { f(RefValue::<TAG> { rt, ptr: value.u.ptr }) }
+            }
 
-        Ok(match value.tag as i32 {
-            JS_TAG_BIG_INT => ref_value(Self::BigInt, rt, value),
-            JS_TAG_SYMBOL => ref_value(Self::Symbol, rt, value),
-            JS_TAG_STRING => ref_value(Self::String, rt, value),
-            JS_TAG_MODULE => ref_value(Self::Module, rt, value),
-            JS_TAG_FUNCTION_BYTECODE => ref_value(Self::FunctionByteCode, rt, value),
-            JS_TAG_OBJECT => ref_value(Self::Object, rt, value),
-            JS_TAG_INT => Self::Int32(value.u.int32),
-            JS_TAG_BOOL => Self::Bool(value.u.int32 != 0),
-            JS_TAG_NULL => Self::Null,
-            JS_TAG_UNDEFINED => Self::Undefined,
-            JS_TAG_UNINITIALIZED => Self::Uninitialized,
-            JS_TAG_CATCH_OFFSET => Self::CatchOffset(value.u.int32),
-            JS_TAG_FLOAT64 => Self::Float64(value.u.float64),
-            JS_TAG_EXCEPTION => return Err(Exception),
-            tag => panic!("unknown tag {}", tag),
-        })
+            Ok(match value.tag as i32 {
+                JS_TAG_BIG_INT => ref_value(Self::BigInt, rt, value),
+                JS_TAG_SYMBOL => ref_value(Self::Symbol, rt, value),
+                JS_TAG_STRING => ref_value(Self::String, rt, value),
+                JS_TAG_MODULE => ref_value(Self::Module, rt, value),
+                JS_TAG_FUNCTION_BYTECODE => ref_value(Self::FunctionByteCode, rt, value),
+                JS_TAG_OBJECT => ref_value(Self::Object, rt, value),
+                JS_TAG_INT => Self::Int32(value.u.int32),
+                JS_TAG_BOOL => Self::Bool(value.u.int32 != 0),
+                JS_TAG_NULL => Self::Null,
+                JS_TAG_UNDEFINED => Self::Undefined,
+                JS_TAG_UNINITIALIZED => Self::Uninitialized,
+                JS_TAG_CATCH_OFFSET => Self::CatchOffset(value.u.int32),
+                JS_TAG_FLOAT64 => Self::Float64(value.u.float64),
+                JS_TAG_EXCEPTION => return Err(Exception),
+                tag => panic!("unknown tag {}", tag),
+            })
+        }
     }
 
     pub fn as_raw(&self) -> JSValue {

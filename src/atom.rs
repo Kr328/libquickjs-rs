@@ -1,4 +1,4 @@
-use rquickjs_sys::{JSAtom, JS_FreeAtomRT};
+use rquickjs_sys::{JS_FreeAtomRT, JSAtom};
 
 use crate::Runtime;
 

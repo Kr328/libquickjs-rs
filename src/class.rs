@@ -1,6 +1,6 @@
 use crate::{
-    value::{Object, Value},
     Context, GlobalValue, Runtime,
+    value::{Object, Value},
 };
 
 #[derive(Copy, Clone)]

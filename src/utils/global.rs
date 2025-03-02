@@ -1,8 +1,8 @@
 use std::{
     ptr::NonNull,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -77,10 +77,6 @@ impl<T> Global<T> {
     }
 
     pub fn to_local(&self, rt: NonNull<rquickjs_sys::JSRuntime>) -> Option<&T> {
-        if self.runtime == rt {
-            Some(&self.record.value)
-        } else {
-            None
-        }
+        if self.runtime == rt { Some(&self.record.value) } else { None }
     }
 }

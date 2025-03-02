@@ -1,7 +1,7 @@
 use crate::{
+    Context,
     class::{CallOptions, Class},
     value::{Object, Value},
-    Context,
 };
 
 pub struct NativeFunction<F>
