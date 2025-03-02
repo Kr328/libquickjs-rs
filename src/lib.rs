@@ -18,12 +18,13 @@ use rquickjs_sys::{
     JS_FreeContext, JS_FreeRuntime, JS_FreeValueRT, JS_GetClassID, JS_GetException, JS_GetGlobalObject, JS_GetOpaque,
     JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr, JS_GetPropertyUint32, JS_GetPrototype,
     JS_GetRuntime, JS_GetRuntimeOpaque, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsConstructor, JS_IsError, JS_IsExtensible,
-    JS_IsFunction, JS_IsRegisteredClass, JS_MarkValue, JS_NewArray, JS_NewAtomLen, JS_NewAtomUInt32, JS_NewBigInt64,
-    JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext, JS_NewContextRaw, JS_NewFloat64, JS_NewObject, JS_NewObjectClass,
-    JS_NewObjectProto, JS_NewObjectProtoClass, JS_NewRuntime, JS_NewStringLen, JS_PreventExtensions, JS_RunGC, JS_SetClassProto,
-    JS_SetConstructorBit, JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32,
-    JS_SetPrototype, JS_SetRuntimeOpaque, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64,
-    JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom,
+    JS_IsFunction, JS_IsPromise, JS_IsRegisteredClass, JS_MarkValue, JS_NewArray, JS_NewAtomLen, JS_NewAtomUInt32,
+    JS_NewBigInt64, JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext, JS_NewContextRaw, JS_NewFloat64, JS_NewObject,
+    JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_NewPromiseCapability, JS_NewRuntime, JS_NewStringLen,
+    JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject, JS_RunGC, JS_SetClassProto, JS_SetConstructorBit,
+    JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype,
+    JS_SetRuntimeOpaque, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex,
+    JS_ToInt32, JS_ToInt64Ext, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom, JS_WriteObject,
 };
 
 use crate::utils::{
@@ -252,7 +253,7 @@ bitflags! {
         const RegExpCompiler = 1 << 4;
         const RegExp = 1 << 5;
         const JSON = 1 << 6;
-        const Proxy =1  << 7;
+        const Proxy = 1 << 7;
         const MapSet = 1 << 8;
         const TypedArrays = 1 << 9;
         const Promise = 1 << 10;
@@ -268,28 +269,28 @@ pub struct OwnAtom<'rt> {
 bitflags! {
     #[derive(Copy, Clone, Default)]
     pub struct GetOwnAtomFlags: u32 {
-        const STRING_MARK = 1 << 0;
-        const SYMBOL_MARK = 1 << 1;
-        const ENUM_ONLY = 1 << 2;
+        const STRING_MASK = rquickjs_sys::JS_GPN_STRING_MASK;
+        const SYMBOL_MASK = rquickjs_sys::JS_GPN_SYMBOL_MASK;
+        const ENUM_ONLY = rquickjs_sys::JS_GPN_ENUM_ONLY;
     }
 }
 
 bitflags! {
     #[derive(Copy, Clone, Default)]
     pub struct PropertyDescriptorFlags: u32 {
-        const CONFIGURABLE = 1 << 0;
-        const WRITABLE =  1 << 1;
-        const ENUMERABLE = 1 << 2;
-        const LENGTH = 1 << 3;
-        const NORMAL = 0 << 4;
-        const GETSET = 1 << 4;
+        const CONFIGURABLE = rquickjs_sys::JS_PROP_CONFIGURABLE;
+        const WRITABLE = rquickjs_sys::JS_PROP_WRITABLE;
+        const ENUMERABLE = rquickjs_sys::JS_PROP_ENUMERABLE;
+        const LENGTH = rquickjs_sys::JS_PROP_LENGTH;
+        const NORMAL = rquickjs_sys::JS_PROP_NORMAL;
+        const GETSET = rquickjs_sys::JS_PROP_GETSET;
 
-        const HAS_CONFIGURABLE = 1 << 8;
-        const HAS_WRITABLE = 1 << 9;
-        const HAS_ENUMERABLE = 1 << 10;
-        const HAS_GET = 1 << 11;
-        const HAS_SET = 1 << 12;
-        const HAS_VALUE = 1 << 13;
+        const HAS_CONFIGURABLE = rquickjs_sys::JS_PROP_HAS_CONFIGURABLE;
+        const HAS_WRITABLE = rquickjs_sys::JS_PROP_HAS_WRITABLE;
+        const HAS_ENUMERABLE = rquickjs_sys::JS_PROP_HAS_ENUMERABLE;
+        const HAS_GET = rquickjs_sys::JS_PROP_HAS_GET;
+        const HAS_SET = rquickjs_sys::JS_PROP_HAS_SET;
+        const HAS_VALUE = rquickjs_sys::JS_PROP_HAS_VALUE;
     }
 }
 
@@ -298,6 +299,41 @@ pub struct PropertyDescriptor<'rt> {
     pub getter: Value<'rt>,
     pub setter: Value<'rt>,
     pub flags: PropertyDescriptorFlags,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PromiseState {
+    Pending,
+    Fulfilled,
+    Rejected,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct NotAPromise;
+
+impl Display for NotAPromise {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl std::error::Error for NotAPromise {}
+
+bitflags! {
+    #[derive(Copy, Clone, Default)]
+    pub struct WriteObjectFlags: u32 {
+        const BYTECODE = rquickjs_sys::JS_WRITE_OBJ_BYTECODE;
+        const BSWAP = rquickjs_sys::JS_WRITE_OBJ_BSWAP;
+        const SAB = rquickjs_sys::JS_WRITE_OBJ_SAB;
+        const REFERENCE = rquickjs_sys::JS_WRITE_OBJ_REFERENCE;
+    }
+
+    #[derive(Copy, Clone, Default)]
+    pub struct ReadObjectFlags: u32 {
+        const BYTECODE = rquickjs_sys::JS_READ_OBJ_BYTECODE;
+        const SAB = rquickjs_sys::JS_READ_OBJ_SAB;
+        const REFERENCE = rquickjs_sys::JS_READ_OBJ_REFERENCE;
+    }
 }
 
 impl<'rt> Context<'rt> {
@@ -1146,6 +1182,66 @@ impl<'rt> Context<'rt> {
 
     pub fn get_global_object(&self) -> Value<'rt> {
         unsafe { Value::from_raw(self.rt, JS_GetGlobalObject(self.ptr.as_ptr())).unwrap() }
+    }
+
+    pub fn is_promise(&self, value: &Value) -> bool {
+        unsafe { JS_IsPromise(value.as_raw()) }
+    }
+
+    pub fn new_promise_capability(&self) -> Result<(Value<'rt>, (Value<'rt>, Value<'rt>)), Value<'rt>> {
+        self.try_catch(|| unsafe {
+            let mut resolving_funcs = [rquickjs_sys::JS_UNDEFINED, rquickjs_sys::JS_UNDEFINED];
+
+            let ret = JS_NewPromiseCapability(self.ptr.as_ptr(), resolving_funcs.as_mut_ptr());
+
+            let promise = Value::from_raw(self.rt, ret)?;
+            let resolve = Value::from_raw(self.rt, resolving_funcs[0]).unwrap();
+            let reject = Value::from_raw(self.rt, resolving_funcs[1]).unwrap();
+
+            Ok((promise, (resolve, reject)))
+        })
+    }
+
+    pub fn get_promise_state(&self, promise: &Value) -> Result<PromiseState, NotAPromise> {
+        unsafe {
+            let ret = JS_PromiseState(self.ptr.as_ptr(), promise.as_raw());
+            match ret {
+                rquickjs_sys::JSPromiseStateEnum_JS_PROMISE_PENDING => Ok(PromiseState::Pending),
+                rquickjs_sys::JSPromiseStateEnum_JS_PROMISE_FULFILLED => Ok(PromiseState::Fulfilled),
+                rquickjs_sys::JSPromiseStateEnum_JS_PROMISE_REJECTED => Ok(PromiseState::Rejected),
+                _ => Err(NotAPromise),
+            }
+        }
+    }
+
+    pub fn get_promise_result(&self, promise: &Value) -> Value<'rt> {
+        unsafe {
+            let value = JS_PromiseResult(self.ptr.as_ptr(), promise.as_raw());
+            Value::from_raw(self.rt, value).unwrap()
+        }
+    }
+
+    pub fn write_object(&self, value: &Value, flags: WriteObjectFlags) -> Result<Vec<u8>, Value<'rt>> {
+        unsafe {
+            let mut size = 0;
+            let data = JS_WriteObject(self.ptr.as_ptr(), &mut size, value.as_raw(), flags.bits() as _);
+            if !data.is_null() {
+                let ret = std::slice::from_raw_parts(data, size as _).to_vec();
+
+                js_free(self.ptr.as_ptr(), data as _);
+
+                Ok(ret)
+            } else {
+                Err(self.catch().expect("failed to get error in write object"))
+            }
+        }
+    }
+
+    pub fn read_object(&self, data: &[u8], flags: ReadObjectFlags) -> Result<Value<'rt>, Value<'rt>> {
+        self.try_catch(|| unsafe {
+            let value = JS_ReadObject(self.ptr.as_ptr(), data.as_ptr(), data.len() as _, flags.bits() as _);
+            Value::from_raw(self.rt, value)
+        })
     }
 }
 
