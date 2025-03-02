@@ -5,9 +5,9 @@ use std::{
 
 use rquickjs_sys::{
     JSValue, JSValueUnion, JS_FreeCString, JS_NewFloat64, JS_ToCStringLen, JS_EXCEPTION, JS_MKPTR, JS_MKVAL, JS_NULL,
-    JS_TAG_BIG_DECIMAL, JS_TAG_BIG_FLOAT, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_CATCH_OFFSET, JS_TAG_EXCEPTION, JS_TAG_FLOAT64,
-    JS_TAG_FUNCTION_BYTECODE, JS_TAG_INT, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL,
-    JS_TAG_UNDEFINED, JS_TAG_UNINITIALIZED, JS_UNDEFINED, JS_UNINITIALIZED, JS_VALUE_IS_NAN,
+    JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_CATCH_OFFSET, JS_TAG_EXCEPTION, JS_TAG_FLOAT64, JS_TAG_FUNCTION_BYTECODE, JS_TAG_INT,
+    JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_OBJECT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_TAG_UNINITIALIZED,
+    JS_UNDEFINED, JS_UNINITIALIZED, JS_VALUE_IS_NAN,
 };
 
 use crate::Runtime;
@@ -68,10 +68,13 @@ impl<'rt, const TAG: i32> Clone for RefValue<'rt, TAG> {
         Self {
             rt: self.rt,
             ptr: unsafe {
-                let new_value = rquickjs_sys::JS_DupValue(JSValue {
-                    u: JSValueUnion { ptr: self.ptr },
-                    tag: TAG as _,
-                });
+                let new_value = rquickjs_sys::JS_DupValueRT(
+                    self.rt.as_raw().as_ptr(),
+                    JSValue {
+                        u: JSValueUnion { ptr: self.ptr },
+                        tag: TAG as _,
+                    },
+                );
 
                 assert_eq!(new_value.tag, TAG as i64);
 
@@ -87,9 +90,7 @@ impl<'rt, const TAG: i32> RefValue<'rt, TAG> {
     }
 }
 
-pub type BigDecimal<'rt> = RefValue<'rt, JS_TAG_BIG_DECIMAL>;
 pub type BigInt<'rt> = RefValue<'rt, JS_TAG_BIG_INT>;
-pub type BigFloat<'rt> = RefValue<'rt, JS_TAG_BIG_FLOAT>;
 pub type Symbol<'rt> = RefValue<'rt, JS_TAG_SYMBOL>;
 pub type String<'rt> = RefValue<'rt, JS_TAG_STRING>;
 pub type Module<'rt> = RefValue<'rt, JS_TAG_MODULE>;
@@ -98,9 +99,7 @@ pub type Object<'rt> = RefValue<'rt, JS_TAG_OBJECT>;
 
 #[derive(Clone, Debug)]
 pub enum Value<'rt> {
-    BigDecimal(BigDecimal<'rt>),
     BigInt(BigInt<'rt>),
-    BigFloat(BigFloat<'rt>),
     Symbol(Symbol<'rt>),
     String(String<'rt>),
     Module(Module<'rt>),
@@ -124,21 +123,9 @@ impl<'rt> Value<'rt> {
     }
 }
 
-impl<'rt> From<BigDecimal<'rt>> for Value<'rt> {
-    fn from(value: BigDecimal<'rt>) -> Self {
-        Self::BigDecimal(value)
-    }
-}
-
 impl<'rt> From<BigInt<'rt>> for Value<'rt> {
     fn from(value: BigInt<'rt>) -> Self {
         Self::BigInt(value)
-    }
-}
-
-impl<'rt> From<BigFloat<'rt>> for Value<'rt> {
-    fn from(value: BigFloat<'rt>) -> Self {
-        Self::BigFloat(value)
     }
 }
 
@@ -205,9 +192,7 @@ impl<'rt> Value<'rt> {
         }
 
         Ok(match value.tag as i32 {
-            JS_TAG_BIG_DECIMAL => ref_value(Self::BigDecimal, rt, value),
             JS_TAG_BIG_INT => ref_value(Self::BigInt, rt, value),
-            JS_TAG_BIG_FLOAT => ref_value(Self::BigFloat, rt, value),
             JS_TAG_SYMBOL => ref_value(Self::Symbol, rt, value),
             JS_TAG_STRING => ref_value(Self::String, rt, value),
             JS_TAG_MODULE => ref_value(Self::Module, rt, value),
@@ -227,9 +212,7 @@ impl<'rt> Value<'rt> {
 
     pub fn as_raw(&self) -> JSValue {
         match self {
-            Value::BigDecimal(v) => v.as_raw(),
             Value::BigInt(v) => v.as_raw(),
-            Value::BigFloat(v) => v.as_raw(),
             Value::Symbol(v) => v.as_raw(),
             Value::String(v) => v.as_raw(),
             Value::Module(v) => v.as_raw(),
@@ -255,9 +238,7 @@ impl<'rt> Value<'rt> {
         }
 
         match self {
-            Value::BigDecimal(v) => JS_MKPTR(JS_TAG_BIG_DECIMAL, v.ptr),
             Value::BigInt(v) => JS_MKPTR(JS_TAG_BIG_INT, v.ptr),
-            Value::BigFloat(v) => JS_MKPTR(JS_TAG_BIG_FLOAT, v.ptr),
             Value::Symbol(v) => JS_MKPTR(JS_TAG_SYMBOL, v.ptr),
             Value::String(v) => JS_MKPTR(JS_TAG_STRING, detach_ptr(v)),
             Value::Module(v) => JS_MKPTR(JS_TAG_MODULE, detach_ptr(v)),
@@ -275,9 +256,7 @@ impl<'rt> Value<'rt> {
 
     pub fn get_runtime(&self) -> Option<&'rt Runtime> {
         match self {
-            Value::BigDecimal(v) => Some(v.get_runtime()),
             Value::BigInt(v) => Some(v.get_runtime()),
-            Value::BigFloat(v) => Some(v.get_runtime()),
             Value::Symbol(v) => Some(v.get_runtime()),
             Value::String(v) => Some(v.get_runtime()),
             Value::Module(v) => Some(v.get_runtime()),

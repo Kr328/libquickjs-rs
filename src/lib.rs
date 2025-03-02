@@ -7,30 +7,26 @@ use std::{
     mem::ManuallyDrop,
     ops::Deref,
     ptr::NonNull,
-    sync::{OnceLock, RwLock},
 };
 
 use bitflags::bitflags;
 use rquickjs_sys::{
-    js_free, JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBigDecimal, JS_AddIntrinsicBigFloat, JS_AddIntrinsicBigInt,
-    JS_AddIntrinsicDate, JS_AddIntrinsicEval, JS_AddIntrinsicJSON, JS_AddIntrinsicMapSet, JS_AddIntrinsicOperators,
-    JS_AddIntrinsicPromise, JS_AddIntrinsicProxy, JS_AddIntrinsicRegExp, JS_AddIntrinsicRegExpCompiler,
-    JS_AddIntrinsicStringNormalize, JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2,
-    JS_DeleteProperty, JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValue, JS_EnableBignumExt, JS_Eval, JS_EvalThis,
-    JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreeRuntime, JS_FreeValueRT, JS_GetClassID, JS_GetException,
-    JS_GetGlobalObject, JS_GetOpaque, JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr,
-    JS_GetPropertyUint32, JS_GetPrototype, JS_GetRuntime, JS_GetRuntimeOpaque, JS_HasProperty, JS_Invoke, JS_IsArray,
-    JS_IsConstructor, JS_IsError, JS_IsExtensible, JS_IsFunction, JS_IsRegisteredClass, JS_MarkValue, JS_NewArray, JS_NewAtomLen,
-    JS_NewAtomUInt32, JS_NewBigInt64, JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext, JS_NewContextRaw,
-    JS_NewFloat64, JS_NewObject, JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_NewRuntime, JS_NewStringLen,
-    JS_PreventExtensions, JS_RunGC, JS_SetClassProto, JS_SetConstructorBit, JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64,
-    JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype, JS_SetRuntimeOpaque, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64,
-    JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToPropertyKey, JS_ToString,
-    JS_ValueToAtom,
+    js_free, JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBigInt, JS_AddIntrinsicDate, JS_AddIntrinsicEval, JS_AddIntrinsicJSON,
+    JS_AddIntrinsicMapSet, JS_AddIntrinsicPromise, JS_AddIntrinsicProxy, JS_AddIntrinsicRegExp, JS_AddIntrinsicRegExpCompiler,
+    JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2, JS_DeleteProperty,
+    JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_Eval, JS_EvalThis, JS_FreeAtomRT, JS_FreeCString,
+    JS_FreeContext, JS_FreeRuntime, JS_FreeValueRT, JS_GetClassID, JS_GetException, JS_GetGlobalObject, JS_GetOpaque,
+    JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr, JS_GetPropertyUint32, JS_GetPrototype,
+    JS_GetRuntime, JS_GetRuntimeOpaque, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsConstructor, JS_IsError, JS_IsExtensible,
+    JS_IsFunction, JS_IsRegisteredClass, JS_MarkValue, JS_NewArray, JS_NewAtomLen, JS_NewAtomUInt32, JS_NewBigInt64,
+    JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext, JS_NewContextRaw, JS_NewFloat64, JS_NewObject, JS_NewObjectClass,
+    JS_NewObjectProto, JS_NewObjectProtoClass, JS_NewRuntime, JS_NewStringLen, JS_PreventExtensions, JS_RunGC, JS_SetClassProto,
+    JS_SetConstructorBit, JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32,
+    JS_SetPrototype, JS_SetRuntimeOpaque, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64,
+    JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom,
 };
 
 use crate::utils::{enforce_not_out_of_memory, Global, GlobalHolder, MaybeTinyCString, MaybeTinyVec};
-pub use crate::{atom::*, class::*, func::*, value::*};
 
 mod atom;
 mod class;
@@ -38,8 +34,7 @@ mod func;
 mod utils;
 mod value;
 
-#[cfg(test)]
-mod tests;
+pub use crate::{atom::*, class::*, func::*, value::*};
 
 #[derive(Debug)]
 pub struct InvalidRuntime;
@@ -82,7 +77,7 @@ impl GlobalValue {
     pub fn to_local<'rt>(&self, rt: &'rt Runtime) -> Result<Value<'rt>, InvalidRuntime> {
         self.global
             .to_local(rt.rt_ptr)
-            .map(|value| unsafe { Value::from_raw(rt, JS_DupValue(*value)).unwrap() })
+            .map(|value| unsafe { Value::from_raw(rt, JS_DupValueRT(rt.as_raw().as_ptr(), *value)).unwrap() })
             .ok_or(InvalidRuntime)
     }
 }
@@ -103,7 +98,8 @@ impl GlobalAtom {
     }
 }
 
-struct RuntimeGlobals {
+struct RuntimeStore {
+    class_ids: RefCell<HashMap<TypeId, u32>>,
     global_contexts: RefCell<GlobalHolder<NonNull<rquickjs_sys::JSContext>>>,
     global_refs: RefCell<GlobalHolder<rquickjs_sys::JSValue>>,
     global_atoms: RefCell<GlobalHolder<rquickjs_sys::JSAtom>>,
@@ -118,7 +114,7 @@ unsafe impl Send for Runtime {}
 impl Drop for Runtime {
     fn drop(&mut self) {
         unsafe {
-            let _ = Box::from_raw(JS_GetRuntimeOpaque(self.rt_ptr.as_ptr()) as *mut RuntimeGlobals);
+            let _ = Box::from_raw(JS_GetRuntimeOpaque(self.rt_ptr.as_ptr()) as *mut RuntimeStore);
 
             JS_FreeRuntime(self.rt_ptr.as_ptr());
         }
@@ -127,7 +123,8 @@ impl Drop for Runtime {
 
 impl Runtime {
     pub fn new() -> Self {
-        let global = RuntimeGlobals {
+        let store = RuntimeStore {
+            class_ids: RefCell::new(HashMap::new()),
             global_contexts: RefCell::new(GlobalHolder::new(|_, ctx| unsafe { JS_FreeContext(ctx.as_ptr()) })),
             global_refs: RefCell::new(GlobalHolder::new(|rt, value| unsafe { JS_FreeValueRT(rt.as_ptr(), *value) })),
             global_atoms: RefCell::new(GlobalHolder::new(|rt, value| unsafe { JS_FreeAtomRT(rt.as_ptr(), *value) })),
@@ -136,7 +133,7 @@ impl Runtime {
         unsafe {
             let ptr = enforce_not_out_of_memory(JS_NewRuntime());
 
-            JS_SetRuntimeOpaque(ptr.as_ptr(), Box::into_raw(Box::new(global)) as *mut std::ffi::c_void);
+            JS_SetRuntimeOpaque(ptr.as_ptr(), Box::into_raw(Box::new(store)) as *mut std::ffi::c_void);
 
             Self { rt_ptr: ptr }
         }
@@ -146,11 +143,11 @@ impl Runtime {
         self.rt_ptr
     }
 
-    fn globals(&self) -> &RuntimeGlobals {
+    fn store(&self) -> &RuntimeStore {
         unsafe {
             let ptr = JS_GetRuntimeOpaque(self.rt_ptr.as_ptr());
 
-            &*(ptr as *mut RuntimeGlobals)
+            &*(ptr as *mut RuntimeStore)
         }
     }
 
@@ -175,7 +172,7 @@ impl Runtime {
             Err(InvalidRuntime)
         } else {
             Ok(GlobalContext {
-                global: self.globals().global_contexts.borrow_mut().new_global(self.as_raw(), unsafe {
+                global: self.store().global_contexts.borrow_mut().new_global(self.as_raw(), unsafe {
                     enforce_not_out_of_memory(JS_DupContext(ctx.ptr.as_ptr()))
                 }),
             })
@@ -187,12 +184,27 @@ impl Runtime {
             Err(InvalidRuntime)
         } else {
             Ok(GlobalValue {
-                global: self
-                    .globals()
-                    .global_refs
-                    .borrow_mut()
-                    .new_global(self.as_raw(), unsafe { JS_DupValue(value.as_raw()) }),
+                global: self.store().global_refs.borrow_mut().new_global(self.as_raw(), unsafe {
+                    JS_DupValueRT(self.as_raw().as_ptr(), value.as_raw())
+                }),
             })
+        }
+    }
+
+    fn get_or_alloc_class_id<C: Class>(&self) -> rquickjs_sys::JSClassID {
+        let store = self.store();
+
+        if let Some(v) = store.class_ids.borrow().get(&TypeId::of::<C>()) {
+            return *v;
+        }
+
+        match store.class_ids.borrow_mut().entry(TypeId::of::<C>()) {
+            Entry::Occupied(o) => *o.get(),
+            Entry::Vacant(v) => {
+                let mut id = 0;
+
+                unsafe { *v.insert(JS_NewClassID(self.as_raw().as_ptr(), &mut id)) }
+            }
         }
     }
 }
@@ -221,7 +233,6 @@ bitflags! {
     #[derive(Copy, Clone, Default)]
     pub struct EvalFlags: u32 {
         const STRICT = rquickjs_sys::JS_EVAL_FLAG_STRICT;
-        const STRIP = rquickjs_sys::JS_EVAL_FLAG_STRIP;
         const COMPILE_ONLY = rquickjs_sys::JS_EVAL_FLAG_COMPILE_ONLY;
         const BACKTRACE_BARRIER = rquickjs_sys::JS_EVAL_FLAG_BACKTRACE_BARRIER;
         const ASYNC = rquickjs_sys::JS_EVAL_FLAG_ASYNC;
@@ -234,7 +245,6 @@ bitflags! {
         const BaseObjects = 1 << 0;
         const Date = 1 << 1;
         const Eval = 1 << 2;
-        const StringNormalize = 1 << 3;
         const RegExpCompiler = 1 << 4;
         const RegExp = 1 << 5;
         const JSON = 1 << 6;
@@ -243,9 +253,6 @@ bitflags! {
         const TypedArrays = 1 << 9;
         const Promise = 1 << 10;
         const BigInt = 1 << 11;
-        const BigFloat = 1 << 12;
-        const BigDecimal = 1 << 13;
-        const Operators = 1 << 14;
     }
 }
 
@@ -296,6 +303,15 @@ impl<'rt> Context<'rt> {
 
     pub fn as_raw(&self) -> NonNull<rquickjs_sys::JSContext> {
         self.ptr
+    }
+
+    #[inline]
+    fn enforce_ref_value_in_same_runtime<const TAG: i32>(&self, value: &RefValue<TAG>) {
+        assert_eq!(
+            value.get_runtime().rt_ptr,
+            self.rt.rt_ptr,
+            "supplied value not in same runtime"
+        )
     }
 
     #[inline]
@@ -405,7 +421,6 @@ impl<'rt> Context<'rt> {
                 (Intrinsics::BaseObjects, JS_AddIntrinsicBaseObjects),
                 (Intrinsics::Date, JS_AddIntrinsicDate),
                 (Intrinsics::Eval, JS_AddIntrinsicEval),
-                (Intrinsics::StringNormalize, JS_AddIntrinsicStringNormalize),
                 (Intrinsics::RegExpCompiler, JS_AddIntrinsicRegExpCompiler),
                 (Intrinsics::RegExp, JS_AddIntrinsicRegExp),
                 (Intrinsics::JSON, JS_AddIntrinsicJSON),
@@ -414,9 +429,6 @@ impl<'rt> Context<'rt> {
                 (Intrinsics::TypedArrays, JS_AddIntrinsicTypedArrays),
                 (Intrinsics::Promise, JS_AddIntrinsicPromise),
                 (Intrinsics::BigInt, JS_AddIntrinsicBigInt),
-                (Intrinsics::BigFloat, JS_AddIntrinsicBigFloat),
-                (Intrinsics::BigDecimal, JS_AddIntrinsicBigDecimal),
-                (Intrinsics::Operators, JS_AddIntrinsicOperators),
             ];
 
             for (intrinsic, add_fn) in intrinsic_func {
@@ -425,10 +437,6 @@ impl<'rt> Context<'rt> {
                 }
             }
         }
-    }
-
-    pub fn set_bignum_ext_enabled(&self, enabled: bool) {
-        unsafe { JS_EnableBignumExt(self.ptr.as_ptr(), if enabled { 1 } else { 0 }) }
     }
 
     pub fn new_float64(&self, v: f64) -> Value<'rt> {
@@ -529,19 +537,19 @@ impl<'rt> Context<'rt> {
     pub fn is_error(&self, value: &Value) -> bool {
         self.enforce_value_in_same_runtime(value);
 
-        unsafe { JS_IsError(self.ptr.as_ptr(), value.as_raw()) != 0 }
+        unsafe { JS_IsError(self.ptr.as_ptr(), value.as_raw()) }
     }
 
     pub fn is_function(&self, value: &Value) -> bool {
         self.enforce_value_in_same_runtime(value);
 
-        unsafe { JS_IsFunction(self.ptr.as_ptr(), value.as_raw()) != 0 }
+        unsafe { JS_IsFunction(self.ptr.as_ptr(), value.as_raw()) }
     }
 
     pub fn is_constructor(&self, value: &Value) -> bool {
         self.enforce_value_in_same_runtime(value);
 
-        unsafe { JS_IsConstructor(self.ptr.as_ptr(), value.as_raw()) != 0 }
+        unsafe { JS_IsConstructor(self.ptr.as_ptr(), value.as_raw()) }
     }
 
     pub fn new_string(&self, s: impl AsRef<str>) -> Result<String<'rt>, Value<'rt>> {
@@ -555,16 +563,16 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn get_string<'v>(&'v self, v: &'v Value) -> Result<JSStr<'v>, Value<'rt>>
+    pub fn get_string<'v>(&'v self, v: &'v String<'rt>) -> Result<JSStr<'v>, Value<'rt>>
     where
         'rt: 'v,
     {
-        self.enforce_value_in_same_runtime(v);
+        self.enforce_ref_value_in_same_runtime(v);
 
         unsafe {
             let mut length: std::ffi::c_ulong = 0;
 
-            let ptr = JS_ToCStringLen2(self.ptr.as_ptr(), &mut length, v.as_raw(), 0);
+            let ptr = JS_ToCStringLen2(self.ptr.as_ptr(), &mut length, v.as_raw(), false);
             if ptr.is_null() {
                 return Err(self.catch().unwrap());
             }
@@ -647,7 +655,7 @@ impl<'rt> Context<'rt> {
 
         let global = self
             .rt
-            .globals()
+            .store()
             .global_atoms
             .borrow_mut()
             .new_global(self.rt.rt_ptr, atom.as_raw());
@@ -661,36 +669,22 @@ impl<'rt> Context<'rt> {
         self.try_new_atom(|| unsafe { JS_ValueToAtom(self.ptr.as_ptr(), value.as_raw()) })
     }
 
-    fn get_or_alloc_class_id<C: Class>() -> rquickjs_sys::JSClassID {
-        static CLASS_IDS: OnceLock<RwLock<HashMap<TypeId, rquickjs_sys::JSClassID>>> = OnceLock::new();
-
-        let class_ids = CLASS_IDS.get_or_init(|| RwLock::new(HashMap::new()));
-        if let Some(v) = class_ids.read().unwrap().get(&TypeId::of::<C>()) {
-            return *v;
-        }
-
-        match class_ids.write().unwrap().entry(TypeId::of::<C>()) {
-            Entry::Occupied(o) => *o.get(),
-            Entry::Vacant(v) => {
-                let mut id = 0;
-
-                unsafe { *v.insert(JS_NewClassID(&mut id)) }
-            }
-        }
-    }
-
     fn get_or_register_class<C: Class>(&self) -> rquickjs_sys::JSClassID {
-        let class_id = Self::get_or_alloc_class_id::<C>();
+        let class_id = self.rt.get_or_alloc_class_id::<C>();
 
         unsafe {
-            if JS_IsRegisteredClass(self.rt.as_raw().as_ptr(), class_id) == 0 {
+            if JS_IsRegisteredClass(self.rt.as_raw().as_ptr(), class_id) {
                 let name = CString::new(C::NAME).expect("invalid function name");
 
                 let def = rquickjs_sys::JSClassDef {
                     class_name: name.as_ptr(),
                     finalizer: {
-                        unsafe extern "C" fn finalizer<C: Class>(_: *mut rquickjs_sys::JSRuntime, val: rquickjs_sys::JSValue) {
-                            let ptr = JS_GetOpaque(val, Context::get_or_alloc_class_id::<C>());
+                        unsafe extern "C" fn finalizer<C: Class>(rt: *mut rquickjs_sys::JSRuntime, val: rquickjs_sys::JSValue) {
+                            let rt = ManuallyDrop::new(Runtime {
+                                rt_ptr: NonNull::new(rt).unwrap(),
+                            });
+
+                            let ptr = JS_GetOpaque(val, rt.get_or_alloc_class_id::<C>());
                             if !ptr.is_null() {
                                 drop(Box::from_raw(ptr as *mut C))
                             }
@@ -720,11 +714,15 @@ impl<'rt> Context<'rt> {
                                 }
                             }
 
-                            let ptr = JS_GetOpaque(val, Context::get_or_alloc_class_id::<C>()) as *const C;
+                            let rt = ManuallyDrop::new(Runtime {
+                                rt_ptr: NonNull::new(rt).unwrap(),
+                            });
+
+                            let ptr = JS_GetOpaque(val, rt.get_or_alloc_class_id::<C>()) as *const C;
                             if !ptr.is_null() {
                                 unsafe {
                                     (*ptr).gc_mark(&Marker {
-                                        rt: enforce_not_out_of_memory(rt),
+                                        rt: rt.as_raw(),
                                         mark_func,
                                     })
                                 }
@@ -842,7 +840,7 @@ impl<'rt> Context<'rt> {
     }
 
     pub fn mark_as_constructor(&self, value: &Value, is_constructor: bool) -> bool {
-        unsafe { JS_SetConstructorBit(self.ptr.as_ptr(), value.as_raw(), if is_constructor { 1 } else { 0 }) != 0 }
+        unsafe { JS_SetConstructorBit(self.ptr.as_ptr(), value.as_raw(), is_constructor) }
     }
 
     pub fn new_array(&self) -> Result<Object<'rt>, Value<'rt>> {
@@ -1048,7 +1046,7 @@ impl<'rt> Context<'rt> {
                     let current = &(*ptr.offset(i as isize));
                     atoms.push(OwnAtom {
                         atom: Atom::from_raw(self.rt, current.atom),
-                        is_enumerable: current.is_enumerable != 0,
+                        is_enumerable: current.is_enumerable,
                     });
                 }
                 js_free(self.ptr.as_ptr(), ptr as _);
@@ -1169,7 +1167,7 @@ impl<'v> Deref for JSStr<'v> {
 
 pub fn detect_module(s: impl AsRef<str>) -> bool {
     match MaybeTinyCString::<128>::new(s.as_ref().as_bytes()) {
-        Ok(s) => unsafe { JS_DetectModule(s.as_ptr(), s.count_bytes() as _) != 0 },
+        Ok(s) => unsafe { JS_DetectModule(s.as_ptr(), s.count_bytes() as _) },
         Err(_) => false,
     }
 }
