@@ -606,7 +606,7 @@ impl<'rt> Context<'rt> {
         self.enforce_ref_value_in_same_runtime(v);
 
         unsafe {
-            let mut length: std::ffi::c_ulong = 0;
+            let mut length= 0;
 
             let ptr = JS_ToCStringLen2(self.ptr.as_ptr(), &mut length, v.as_raw(), false);
             if ptr.is_null() {
