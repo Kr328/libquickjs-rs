@@ -22,11 +22,11 @@ fn test_return_string() {
 
     let ret = ctx.eval_global(None, r#""114514""#, "script.js", EvalFlags::empty()).unwrap();
 
-    match ret {
-        Value::String(v) => {
-            let s = ctx.get_string(&v).unwrap();
-            assert_eq!(&*s, "114514");
-        }
+    match &ret {
+        Value::String(_) => {}
         _ => panic!("unexpected return type: {:?}", ret),
     }
+
+    let s = ctx.get_string(&ret).unwrap();
+    assert_eq!(&*s, "114514");
 }

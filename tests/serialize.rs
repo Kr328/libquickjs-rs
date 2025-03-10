@@ -1,4 +1,4 @@
-use libquickjs::{ReadObjectFlags, Runtime, Value, WriteObjectFlags};
+use libquickjs::{ReadObjectFlags, Runtime, WriteObjectFlags};
 
 #[test]
 fn test_write_read_object() {
@@ -14,11 +14,6 @@ fn test_write_read_object() {
 
     let obj = ctx.read_object(&data, ReadObjectFlags::empty()).unwrap();
     let foo = ctx.get_property_str(&obj, "foo").unwrap();
-    let foo_str = ctx
-        .get_string(match &foo {
-            Value::String(s) => s,
-            _ => panic!("foo is not a string"),
-        })
-        .unwrap();
+    let foo_str = ctx.get_string(&foo).unwrap();
     assert_eq!(&*foo_str, "bar");
 }

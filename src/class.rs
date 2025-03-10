@@ -1,7 +1,4 @@
-use crate::{
-    Context, GlobalValue, Runtime,
-    value::{Object, Value},
-};
+use crate::{Context, GlobalValue, Runtime, value::Value};
 
 #[derive(Copy, Clone)]
 pub struct CallOptions {
@@ -19,7 +16,7 @@ pub trait Class: Send + 'static {
     fn call<'rt>(
         &self,
         ctx: &Context<'rt>,
-        func: &Object,
+        func: &Value,
         this: &Value,
         args: &[Value],
         options: CallOptions,
@@ -29,8 +26,7 @@ pub trait Class: Send + 'static {
         let _ = marker;
     }
 
-    fn on_registered(rt: &Runtime, proto: &Object) {
+    fn on_registered(rt: &Runtime) {
         let _ = rt;
-        let _ = proto;
     }
 }

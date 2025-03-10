@@ -13,18 +13,23 @@ use bitflags::bitflags;
 use rquickjs_sys::{
     JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBigInt, JS_AddIntrinsicDate, JS_AddIntrinsicEval, JS_AddIntrinsicJSON,
     JS_AddIntrinsicMapSet, JS_AddIntrinsicPromise, JS_AddIntrinsicProxy, JS_AddIntrinsicRegExp, JS_AddIntrinsicRegExpCompiler,
-    JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2, JS_DeleteProperty,
-    JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_Eval, JS_EvalThis, JS_FreeAtomRT, JS_FreeCString,
-    JS_FreeContext, JS_FreeRuntime, JS_FreeValueRT, JS_GetClassID, JS_GetException, JS_GetGlobalObject, JS_GetOpaque,
+    JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2, JS_ClearUncatchableError,
+    JS_DefineProperty, JS_DefinePropertyGetSet, JS_DefinePropertyValue, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
+    JS_DeleteProperty, JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_Eval, JS_EvalFunction, JS_EvalThis,
+    JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum, JS_FreeRuntime, JS_FreeValueRT, JS_FreezeObject,
+    JS_GetClassID, JS_GetClassProto, JS_GetException, JS_GetFunctionProto, JS_GetGlobalObject, JS_GetLength, JS_GetOpaque,
     JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr, JS_GetPropertyUint32, JS_GetPrototype,
-    JS_GetRuntime, JS_GetRuntimeOpaque, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsConstructor, JS_IsError, JS_IsExtensible,
-    JS_IsFunction, JS_IsPromise, JS_IsRegisteredClass, JS_MarkValue, JS_NewArray, JS_NewAtomLen, JS_NewAtomUInt32,
-    JS_NewBigInt64, JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext, JS_NewContextRaw, JS_NewFloat64, JS_NewObject,
-    JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_NewPromiseCapability, JS_NewRuntime, JS_NewStringLen,
-    JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject, JS_RunGC, JS_SetClassProto, JS_SetConstructorBit,
-    JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype,
-    JS_SetRuntimeOpaque, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex,
-    JS_ToInt32, JS_ToInt64Ext, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom, JS_WriteObject, js_free,
+    JS_GetRuntime, JS_GetRuntimeOpaque, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsConstructor, JS_IsDate, JS_IsEqual,
+    JS_IsError, JS_IsExtensible, JS_IsFunction, JS_IsInstanceOf, JS_IsMap, JS_IsPromise, JS_IsRegExp, JS_IsRegisteredClass,
+    JS_IsSameValue, JS_IsSameValueZero, JS_IsStrictEqual, JS_IsUncatchableError, JS_JSONStringify, JS_MarkValue, JS_NewArray,
+    JS_NewAtomLen, JS_NewAtomUInt32, JS_NewBigInt64, JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext,
+    JS_NewContextRaw, JS_NewDate, JS_NewError, JS_NewFloat64, JS_NewNumber, JS_NewObject, JS_NewObjectClass, JS_NewObjectProto,
+    JS_NewObjectProtoClass, JS_NewPromiseCapability, JS_NewRuntime, JS_NewStringLen, JS_NewSymbol, JS_ParseJSON,
+    JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject, JS_ResolveModule, JS_RunGC, JS_SealObject,
+    JS_SetClassProto, JS_SetConstructorBit, JS_SetLength, JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr,
+    JS_SetPropertyUint32, JS_SetPrototype, JS_SetRuntimeOpaque, JS_SetUncatchableError, JS_Throw, JS_ThrowTypeError,
+    JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToNumber, JS_ToObject,
+    JS_ToObjectString, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom, JS_WriteObject, js_free,
 };
 
 use crate::utils::{
@@ -285,12 +290,16 @@ bitflags! {
         const NORMAL = rquickjs_sys::JS_PROP_NORMAL;
         const GETSET = rquickjs_sys::JS_PROP_GETSET;
 
+        const HAS_SHIFT = rquickjs_sys::JS_PROP_HAS_SHIFT;
         const HAS_CONFIGURABLE = rquickjs_sys::JS_PROP_HAS_CONFIGURABLE;
         const HAS_WRITABLE = rquickjs_sys::JS_PROP_HAS_WRITABLE;
         const HAS_ENUMERABLE = rquickjs_sys::JS_PROP_HAS_ENUMERABLE;
         const HAS_GET = rquickjs_sys::JS_PROP_HAS_GET;
         const HAS_SET = rquickjs_sys::JS_PROP_HAS_SET;
         const HAS_VALUE = rquickjs_sys::JS_PROP_HAS_VALUE;
+
+        const THROW = rquickjs_sys::JS_PROP_THROW;
+        const THROW_STRICT = rquickjs_sys::JS_PROP_THROW_STRICT;
     }
 }
 
@@ -343,15 +352,6 @@ impl<'rt> Context<'rt> {
 
     pub fn as_raw(&self) -> NonNull<rquickjs_sys::JSContext> {
         self.ptr
-    }
-
-    #[inline]
-    fn enforce_ref_value_in_same_runtime<const TAG: i32>(&self, value: &RefValue<TAG>) {
-        assert_eq!(
-            value.get_runtime().rt_ptr,
-            self.rt.rt_ptr,
-            "supplied value not in same runtime"
-        )
     }
 
     #[inline]
@@ -483,6 +483,10 @@ impl<'rt> Context<'rt> {
         unsafe { Value::from_raw(self.rt, JS_NewFloat64(v)).unwrap() }
     }
 
+    pub fn new_number(&self, v: f64) -> Value<'rt> {
+        unsafe { Value::from_raw(self.rt, JS_NewNumber(self.ptr.as_ptr(), v)).unwrap() }
+    }
+
     pub fn new_big_int64(&self, v: i64) -> Result<Value<'rt>, Value<'rt>> {
         self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_NewBigInt64(self.ptr.as_ptr(), v)) })
     }
@@ -498,6 +502,12 @@ impl<'rt> Context<'rt> {
             let ret = JS_ToBool(self.ptr.as_ptr(), v.as_raw());
             if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
+    }
+
+    pub fn to_number(&self, v: &Value) -> Result<Value<'rt>, Value<'rt>> {
+        self.enforce_value_in_same_runtime(v);
+
+        self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_ToNumber(self.ptr.as_ptr(), v.as_raw())) })
     }
 
     pub fn to_int32(&self, v: &Value) -> Result<i32, Value<'rt>> {
@@ -570,22 +580,94 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn is_error(&self, value: &Object) -> bool {
-        self.enforce_ref_value_in_same_runtime(value);
+    pub fn to_object(&self, value: &Value) -> Result<Value<'rt>, Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_ToObject(self.ptr.as_ptr(), value.as_raw())) })
+    }
+
+    pub fn to_object_string(&self, value: &Value) -> Result<Value<'rt>, Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_ToObjectString(self.ptr.as_ptr(), value.as_raw())) })
+    }
+
+    pub fn is_error(&self, value: &Value) -> bool {
+        self.enforce_value_in_same_runtime(value);
 
         unsafe { JS_IsError(self.ptr.as_ptr(), value.as_raw()) }
     }
 
-    pub fn is_function(&self, value: &Object) -> bool {
-        self.enforce_ref_value_in_same_runtime(value);
+    pub fn is_uncatchable_error(&self, value: &Value) -> bool {
+        self.enforce_value_in_same_runtime(value);
+
+        unsafe { JS_IsUncatchableError(self.ptr.as_ptr(), value.as_raw()) }
+    }
+
+    pub fn set_uncatchable_error(&self, value: &Value, flag: bool) {
+        self.enforce_value_in_same_runtime(value);
+
+        unsafe {
+            if flag {
+                JS_SetUncatchableError(self.ptr.as_ptr(), value.as_raw())
+            } else {
+                JS_ClearUncatchableError(self.ptr.as_ptr(), value.as_raw())
+            }
+        }
+    }
+
+    pub fn new_error(&self) -> Value<'rt> {
+        unsafe {
+            match self.try_catch(|| Value::from_raw(self.rt, JS_NewError(self.ptr.as_ptr()))) {
+                Ok(not_err) => not_err,
+                Err(err) => err,
+            }
+        }
+    }
+
+    pub fn is_function(&self, value: &Value) -> bool {
+        self.enforce_value_in_same_runtime(value);
 
         unsafe { JS_IsFunction(self.ptr.as_ptr(), value.as_raw()) }
     }
 
-    pub fn is_constructor(&self, value: &Object) -> bool {
-        self.enforce_ref_value_in_same_runtime(value);
+    pub fn is_constructor(&self, value: &Value) -> bool {
+        self.enforce_value_in_same_runtime(value);
 
         unsafe { JS_IsConstructor(self.ptr.as_ptr(), value.as_raw()) }
+    }
+
+    pub fn is_equal(&self, a: &Value, b: &Value) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(a);
+        self.enforce_value_in_same_runtime(b);
+
+        unsafe {
+            self.try_catch(|| {
+                let ret = JS_IsEqual(self.ptr.as_ptr(), a.as_raw(), b.as_raw());
+                if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+            })
+        }
+    }
+
+    pub fn is_strict_equal(&self, a: &Value, b: &Value) -> bool {
+        self.enforce_value_in_same_runtime(a);
+        self.enforce_value_in_same_runtime(b);
+
+        unsafe { JS_IsStrictEqual(self.ptr.as_ptr(), a.as_raw(), b.as_raw()) }
+    }
+
+    pub fn is_same_value(&self, a: &Value, b: &Value) -> bool {
+        self.enforce_value_in_same_runtime(a);
+        self.enforce_value_in_same_runtime(b);
+
+        unsafe { JS_IsSameValue(self.ptr.as_ptr(), a.as_raw(), b.as_raw()) }
+    }
+
+    pub fn is_same_value_zero(&self, a: &Value, b: &Value) -> bool {
+        self.enforce_value_in_same_runtime(a);
+        self.enforce_value_in_same_runtime(b);
+
+        unsafe { JS_IsSameValueZero(self.ptr.as_ptr(), a.as_raw(), b.as_raw()) }
     }
 
     pub fn new_string(&self, s: impl AsRef<str>) -> Result<Value<'rt>, Value<'rt>> {
@@ -596,11 +678,11 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn get_string<'v>(&'v self, v: &'v String<'rt>) -> Result<JSStr<'v>, Value<'rt>>
+    pub fn get_string<'v>(&'v self, v: &'v Value<'rt>) -> Result<JSStr<'v>, Value<'rt>>
     where
         'rt: 'v,
     {
-        self.enforce_ref_value_in_same_runtime(v);
+        self.enforce_value_in_same_runtime(v);
 
         unsafe {
             let mut length= 0;
@@ -779,10 +861,7 @@ impl<'rt> Context<'rt> {
                                     panic!("unexpected function obj");
                                 }
 
-                                let func = match Value::from_raw(&rt, func_obj).unwrap() {
-                                    Value::Object(obj) => ManuallyDrop::new(obj),
-                                    v => panic!("invalid function object: {:?}", v),
-                                };
+                                let func = ManuallyDrop::new(Value::from_raw(&rt, func_obj).unwrap());
                                 let this = ManuallyDrop::new(Value::from_raw(&rt, this_val).unwrap());
                                 let args = (0..argc)
                                     .into_iter()
@@ -816,25 +895,16 @@ impl<'rt> Context<'rt> {
                     panic!("out of memory")
                 }
 
-                let proto = Value::from_raw(self.rt, JS_NewObject(self.ptr.as_ptr())).unwrap();
-
-                JS_SetClassProto(self.ptr.as_ptr(), class_id, proto.clone().into_raw());
-
-                let proto = match proto {
-                    Value::Object(obj) => obj,
-                    value => panic!("unexpected value: {:?}", value),
-                };
-
-                C::on_registered(self.rt, &proto);
+                C::on_registered(self.rt);
             }
 
             class_id
         }
     }
 
-    pub fn new_object(&self, proto: Option<&Object>) -> Result<Value<'rt>, Value<'rt>> {
+    pub fn new_object(&self, proto: Option<&Value>) -> Result<Value<'rt>, Value<'rt>> {
         if let Some(obj) = proto {
-            self.enforce_ref_value_in_same_runtime(obj);
+            self.enforce_value_in_same_runtime(obj);
         }
 
         self.try_catch(|| unsafe {
@@ -847,9 +917,9 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn new_object_class<C: Class>(&self, class: C, proto: Option<&Object>) -> Result<Value<'rt>, Value<'rt>> {
+    pub fn new_object_class<C: Class>(&self, class: C, proto: Option<&Value>) -> Result<Value<'rt>, Value<'rt>> {
         if let Some(obj) = proto {
-            self.enforce_ref_value_in_same_runtime(obj);
+            self.enforce_value_in_same_runtime(obj);
         }
 
         self.try_catch(|| unsafe {
@@ -866,8 +936,36 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn mark_as_constructor(&self, value: &Object, is_constructor: bool) -> bool {
+    pub fn set_constructor_bit(&self, value: &Value, is_constructor: bool) -> bool {
+        self.enforce_value_in_same_runtime(value);
+
         unsafe { JS_SetConstructorBit(self.ptr.as_ptr(), value.as_raw(), is_constructor) }
+    }
+
+    pub fn set_class_proto<C: Class>(&self, proto: Value) {
+        self.enforce_value_in_same_runtime(&proto);
+
+        let class_id = self.get_or_register_class::<C>();
+
+        unsafe {
+            JS_SetClassProto(self.ptr.as_ptr(), class_id as _, proto.into_raw());
+        }
+    }
+
+    pub fn get_class_proto<C: Class>(&self) -> Value<'rt> {
+        let class_id = self.get_or_register_class::<C>();
+
+        unsafe {
+            let value = JS_GetClassProto(self.ptr.as_ptr(), class_id as _);
+            Value::from_raw(self.rt, value).unwrap()
+        }
+    }
+
+    pub fn get_function_proto(&self) -> Value<'rt> {
+        unsafe {
+            let value = JS_GetFunctionProto(self.ptr.as_ptr());
+            Value::from_raw(self.rt, value).unwrap()
+        }
     }
 
     pub fn new_array(&self) -> Result<Value<'rt>, Value<'rt>> {
@@ -881,6 +979,37 @@ impl<'rt> Context<'rt> {
             let ret = JS_IsArray(self.ptr.as_ptr(), value.as_raw());
             if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
+    }
+
+    pub fn get_length(&self, value: &Value) -> Result<i64, Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let mut length = 0;
+            let ret = JS_GetLength(self.ptr.as_ptr(), value.as_raw(), &mut length);
+            if ret < 0 { Err(Exception) } else { Ok(length) }
+        })
+    }
+
+    pub fn set_length(&self, value: &Value, length: i64) -> Result<(), Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_SetLength(self.ptr.as_ptr(), value.as_raw(), length);
+            if ret < 0 { Err(Exception) } else { Ok(()) }
+        })
+    }
+
+    pub fn is_regexp(&self, value: &Value) -> bool {
+        self.enforce_value_in_same_runtime(value);
+
+        unsafe { JS_IsRegExp(value.as_raw()) }
+    }
+
+    pub fn is_map(&self, value: &Value) -> bool {
+        self.enforce_value_in_same_runtime(value);
+
+        unsafe { JS_IsMap(value.as_raw()) }
     }
 
     pub fn get_property(&self, obj: &Value, prop: &Atom) -> Result<Value<'rt>, Value<'rt>> {
@@ -975,8 +1104,8 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn is_extensible(&self, obj: &Object) -> Result<bool, Value<'rt>> {
-        self.enforce_ref_value_in_same_runtime(obj);
+    pub fn is_extensible(&self, obj: &Value) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(obj);
 
         self.try_catch(|| unsafe {
             let ret = JS_IsExtensible(self.ptr.as_ptr(), obj.as_raw());
@@ -984,11 +1113,29 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn prevent_extensions(&self, obj: &Object) -> Result<bool, Value<'rt>> {
-        self.enforce_ref_value_in_same_runtime(obj);
+    pub fn prevent_extensions(&self, obj: &Value) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(obj);
 
         self.try_catch(|| unsafe {
             let ret = JS_PreventExtensions(self.ptr.as_ptr(), obj.as_raw());
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+        })
+    }
+
+    pub fn seal_object(&self, obj: &Value) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(obj);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_SealObject(self.ptr.as_ptr(), obj.as_raw());
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+        })
+    }
+
+    pub fn freeze_object(&self, obj: &Value) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(obj);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_FreezeObject(self.ptr.as_ptr(), obj.as_raw());
             if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
@@ -1031,7 +1178,7 @@ impl<'rt> Context<'rt> {
                         is_enumerable: current.is_enumerable,
                     });
                 }
-                js_free(self.ptr.as_ptr(), ptr as _);
+                JS_FreePropertyEnum(self.ptr.as_ptr(), ptr, length);
                 Ok(atoms)
             }
         })
@@ -1065,8 +1212,8 @@ impl<'rt> Context<'rt> {
         vec
     }
 
-    pub fn call(&self, func: &Object, this: &Value, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
-        self.enforce_ref_value_in_same_runtime(func);
+    pub fn call(&self, func: &Value, this: &Value, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
+        self.enforce_value_in_same_runtime(func);
         self.enforce_value_in_same_runtime(this);
 
         let args = self.convert_value_to_raw_value::<16>(args);
@@ -1101,8 +1248,8 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn call_constructor(&self, func: &Object, new_target: Option<&Value>, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
-        self.enforce_ref_value_in_same_runtime(func);
+    pub fn call_constructor(&self, func: &Value, new_target: Option<&Value>, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
+        self.enforce_value_in_same_runtime(func);
 
         if let Some(new_target) = new_target {
             self.enforce_value_in_same_runtime(new_target);
@@ -1124,6 +1271,131 @@ impl<'rt> Context<'rt> {
 
     pub fn get_global_object(&self) -> Value<'rt> {
         unsafe { Value::from_raw(self.rt, JS_GetGlobalObject(self.ptr.as_ptr())).unwrap() }
+    }
+
+    pub fn is_instance_of(&self, value: &Value, proto: &Value) -> Result<bool, Value<'rt>> {
+        unsafe {
+            self.try_catch(|| {
+                let ret = JS_IsInstanceOf(self.ptr.as_ptr(), value.as_raw(), proto.as_raw());
+                if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+            })
+        }
+    }
+
+    pub fn define_property(
+        &self,
+        this_obj: &Value,
+        prop: &Atom,
+        value: &Value,
+        getter: &Value,
+        setter: &Value,
+        flags: PropertyDescriptorFlags,
+    ) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(this_obj);
+        self.enforce_atom_in_same_runtime(prop);
+        self.enforce_value_in_same_runtime(value);
+        self.enforce_value_in_same_runtime(getter);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_DefineProperty(
+                self.ptr.as_ptr(),
+                this_obj.as_raw(),
+                prop.as_raw(),
+                value.as_raw(),
+                getter.as_raw(),
+                setter.as_raw(),
+                flags.bits() as _,
+            );
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+        })
+    }
+
+    pub fn define_property_value(
+        &self,
+        this_obj: &Value,
+        prop: &Atom,
+        value: &Value,
+        flags: PropertyDescriptorFlags,
+    ) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(this_obj);
+        self.enforce_atom_in_same_runtime(prop);
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_DefinePropertyValue(
+                self.ptr.as_ptr(),
+                this_obj.as_raw(),
+                prop.as_raw(),
+                value.as_raw(),
+                flags.bits() as _,
+            );
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+        })
+    }
+
+    pub fn define_property_value_str(
+        &self,
+        this_obj: &Value,
+        prop: &str,
+        value: &Value,
+        flags: PropertyDescriptorFlags,
+    ) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(this_obj);
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let prop = self.new_c_string::<16>(prop)?;
+            let ret = JS_DefinePropertyValueStr(
+                self.ptr.as_ptr(),
+                this_obj.as_raw(),
+                prop.as_ptr(),
+                value.as_raw(),
+                flags.bits() as _,
+            );
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+        })
+    }
+
+    pub fn define_property_value_uint32(
+        &self,
+        this_obj: &Value,
+        prop: u32,
+        value: &Value,
+        flags: PropertyDescriptorFlags,
+    ) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(this_obj);
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_DefinePropertyValueUint32(self.ptr.as_ptr(), this_obj.as_raw(), prop, value.as_raw(), flags.bits() as _);
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+        })
+    }
+
+    pub fn define_property_getset(
+        &self,
+        this_obj: &Value,
+        prop: &Atom,
+        getter: &Value,
+        setter: &Value,
+        flags: PropertyDescriptorFlags,
+    ) -> Result<bool, Value<'rt>> {
+        self.enforce_value_in_same_runtime(this_obj);
+        self.enforce_atom_in_same_runtime(prop);
+        self.enforce_value_in_same_runtime(getter);
+        self.enforce_value_in_same_runtime(setter);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_DefinePropertyGetSet(
+                self.ptr.as_ptr(),
+                this_obj.as_raw(),
+                prop.as_raw(),
+                getter.as_raw(),
+                setter.as_raw(),
+                flags.bits() as _,
+            );
+            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
+        })
     }
 
     pub fn is_promise(&self, value: &Value) -> bool {
@@ -1163,6 +1435,49 @@ impl<'rt> Context<'rt> {
         }
     }
 
+    pub fn new_symbol(&self, description: &str, is_global: bool) -> Result<Value<'rt>, Value<'rt>> {
+        unsafe {
+            self.try_catch(|| {
+                let description = self.new_c_string::<16>(description)?;
+                let value = JS_NewSymbol(self.ptr.as_ptr(), description.as_ptr(), is_global);
+                Value::from_raw(self.rt, value)
+            })
+        }
+    }
+
+    pub fn new_date(&self, epoch_ms: f64) -> Result<Value<'rt>, Value<'rt>> {
+        unsafe {
+            self.try_catch(|| {
+                let value = JS_NewDate(self.ptr.as_ptr(), epoch_ms);
+                Value::from_raw(self.rt, value)
+            })
+        }
+    }
+
+    pub fn is_date(&self, value: &Value) -> bool {
+        unsafe { JS_IsDate(value.as_raw()) }
+    }
+
+    pub fn parse_json(&self, json: &str, filename: &str) -> Result<Value<'rt>, Value<'rt>> {
+        unsafe {
+            self.try_catch(|| {
+                let json = self.new_c_string::<256>(json)?;
+                let filename = self.new_c_string::<16>(filename)?;
+                let value = JS_ParseJSON(self.ptr.as_ptr(), json.as_ptr(), json.count_bytes() as _, filename.as_ptr());
+                Value::from_raw(self.rt, value)
+            })
+        }
+    }
+
+    pub fn json_stringify(&self, value: &Value, replacer: &Value, space: &Value) -> Result<Value<'rt>, Value<'rt>> {
+        unsafe {
+            self.try_catch(|| {
+                let value = JS_JSONStringify(self.ptr.as_ptr(), value.as_raw(), replacer.as_raw(), space.as_raw());
+                Value::from_raw(self.rt, value)
+            })
+        }
+    }
+
     pub fn write_object(&self, value: &Value, flags: WriteObjectFlags) -> Result<Vec<u8>, Value<'rt>> {
         unsafe {
             let mut size = 0;
@@ -1183,6 +1498,25 @@ impl<'rt> Context<'rt> {
         self.try_catch(|| unsafe {
             let value = JS_ReadObject(self.ptr.as_ptr(), data.as_ptr(), data.len() as _, flags.bits() as _);
             Value::from_raw(self.rt, value)
+        })
+    }
+
+    pub fn eval_function(&self, func: Value) -> Result<Value<'rt>, Value<'rt>> {
+        self.enforce_value_in_same_runtime(&func);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_EvalFunction(self.ptr.as_ptr(), func.into_raw());
+
+            Value::from_raw(self.rt, ret)
+        })
+    }
+
+    pub fn resolve_module(&self, module: &Value) -> Result<(), Value<'rt>> {
+        self.enforce_value_in_same_runtime(module);
+
+        self.try_catch(|| unsafe {
+            let ret = JS_ResolveModule(self.ptr.as_ptr(), module.as_raw());
+            if ret < 0 { Err(Exception) } else { Ok(()) }
         })
     }
 }
