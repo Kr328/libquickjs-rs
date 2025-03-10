@@ -570,32 +570,29 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn is_error(&self, value: &Value) -> bool {
-        self.enforce_value_in_same_runtime(value);
+    pub fn is_error(&self, value: &Object) -> bool {
+        self.enforce_ref_value_in_same_runtime(value);
 
         unsafe { JS_IsError(self.ptr.as_ptr(), value.as_raw()) }
     }
 
-    pub fn is_function(&self, value: &Value) -> bool {
-        self.enforce_value_in_same_runtime(value);
+    pub fn is_function(&self, value: &Object) -> bool {
+        self.enforce_ref_value_in_same_runtime(value);
 
         unsafe { JS_IsFunction(self.ptr.as_ptr(), value.as_raw()) }
     }
 
-    pub fn is_constructor(&self, value: &Value) -> bool {
-        self.enforce_value_in_same_runtime(value);
+    pub fn is_constructor(&self, value: &Object) -> bool {
+        self.enforce_ref_value_in_same_runtime(value);
 
         unsafe { JS_IsConstructor(self.ptr.as_ptr(), value.as_raw()) }
     }
 
-    pub fn new_string(&self, s: impl AsRef<str>) -> Result<String<'rt>, Value<'rt>> {
+    pub fn new_string(&self, s: impl AsRef<str>) -> Result<Value<'rt>, Value<'rt>> {
         self.try_catch(|| unsafe {
             let s = s.as_ref();
 
-            match Value::from_raw(self.rt, JS_NewStringLen(self.ptr.as_ptr(), s.as_ptr() as _, s.len() as _))? {
-                Value::String(s) => Ok(s),
-                value => panic!("unexpected string: {:?}", value),
-            }
+            Value::from_raw(self.rt, JS_NewStringLen(self.ptr.as_ptr(), s.as_ptr() as _, s.len() as _))
         })
     }
 
@@ -621,15 +618,10 @@ impl<'rt> Context<'rt> {
         }
     }
 
-    pub fn to_string(&self, value: &Value) -> Result<String<'rt>, Value<'rt>> {
+    pub fn to_string(&self, value: &Value) -> Result<Value<'rt>, Value<'rt>> {
         self.enforce_value_in_same_runtime(value);
 
-        self.try_catch(|| unsafe {
-            match Value::from_raw(self.rt, JS_ToString(self.ptr.as_ptr(), value.as_raw()))? {
-                Value::String(s) => Ok(s),
-                value => panic!("unexpected string: {:?}", value),
-            }
-        })
+        self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_ToString(self.ptr.as_ptr(), value.as_raw())) })
     }
 
     pub fn to_property_key(&self, value: &Value) -> Result<Value<'rt>, Value<'rt>> {
@@ -675,15 +667,10 @@ impl<'rt> Context<'rt> {
         self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_AtomToValue(self.ptr.as_ptr(), atom.as_raw())) })
     }
 
-    pub fn atom_to_string(&self, atom: &Atom) -> Result<String<'rt>, Value<'rt>> {
+    pub fn atom_to_string(&self, atom: &Atom) -> Result<Value<'rt>, Value<'rt>> {
         self.enforce_atom_in_same_runtime(atom);
 
-        self.try_catch(|| unsafe {
-            match Value::from_raw(self.rt, JS_AtomToString(self.ptr.as_ptr(), atom.as_raw()))? {
-                Value::String(v) => Ok(v),
-                value => panic!("unexpected value: {:?}", value),
-            }
-        })
+        self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_AtomToString(self.ptr.as_ptr(), atom.as_raw())) })
     }
 
     pub fn new_global_atom(&self, atom: &Atom) -> GlobalAtom {
@@ -845,9 +832,9 @@ impl<'rt> Context<'rt> {
         }
     }
 
-    pub fn new_object(&self, proto: Option<&Value>) -> Result<Value<'rt>, Value<'rt>> {
+    pub fn new_object(&self, proto: Option<&Object>) -> Result<Value<'rt>, Value<'rt>> {
         if let Some(obj) = proto {
-            self.enforce_value_in_same_runtime(obj);
+            self.enforce_ref_value_in_same_runtime(obj);
         }
 
         self.try_catch(|| unsafe {
@@ -860,9 +847,9 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn new_object_class<C: Class>(&self, class: C, proto: Option<&Value>) -> Result<Value<'rt>, Value<'rt>> {
+    pub fn new_object_class<C: Class>(&self, class: C, proto: Option<&Object>) -> Result<Value<'rt>, Value<'rt>> {
         if let Some(obj) = proto {
-            self.enforce_value_in_same_runtime(obj);
+            self.enforce_ref_value_in_same_runtime(obj);
         }
 
         self.try_catch(|| unsafe {
@@ -879,17 +866,12 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn mark_as_constructor(&self, value: &Value, is_constructor: bool) -> bool {
+    pub fn mark_as_constructor(&self, value: &Object, is_constructor: bool) -> bool {
         unsafe { JS_SetConstructorBit(self.ptr.as_ptr(), value.as_raw(), is_constructor) }
     }
 
-    pub fn new_array(&self) -> Result<Object<'rt>, Value<'rt>> {
-        self.try_catch(|| unsafe {
-            match Value::from_raw(self.rt, JS_NewArray(self.ptr.as_ptr()))? {
-                Value::Object(o) => Ok(o),
-                value => panic!("unexpected array: {:?}", value),
-            }
-        })
+    pub fn new_array(&self) -> Result<Value<'rt>, Value<'rt>> {
+        self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_NewArray(self.ptr.as_ptr())) })
     }
 
     pub fn is_array(&self, value: &Value) -> Result<bool, Value<'rt>> {
@@ -993,8 +975,8 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn is_extensible(&self, obj: &Value) -> Result<bool, Value<'rt>> {
-        self.enforce_value_in_same_runtime(obj);
+    pub fn is_extensible(&self, obj: &Object) -> Result<bool, Value<'rt>> {
+        self.enforce_ref_value_in_same_runtime(obj);
 
         self.try_catch(|| unsafe {
             let ret = JS_IsExtensible(self.ptr.as_ptr(), obj.as_raw());
@@ -1002,8 +984,8 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn prevent_extensions(&self, obj: &Value) -> Result<bool, Value<'rt>> {
-        self.enforce_value_in_same_runtime(obj);
+    pub fn prevent_extensions(&self, obj: &Object) -> Result<bool, Value<'rt>> {
+        self.enforce_ref_value_in_same_runtime(obj);
 
         self.try_catch(|| unsafe {
             let ret = JS_PreventExtensions(self.ptr.as_ptr(), obj.as_raw());
@@ -1083,8 +1065,8 @@ impl<'rt> Context<'rt> {
         vec
     }
 
-    pub fn call(&self, func: &Value, this: &Value, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
-        self.enforce_value_in_same_runtime(func);
+    pub fn call(&self, func: &Object, this: &Value, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
+        self.enforce_ref_value_in_same_runtime(func);
         self.enforce_value_in_same_runtime(this);
 
         let args = self.convert_value_to_raw_value::<16>(args);
@@ -1119,8 +1101,8 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn call_constructor(&self, func: &Value, new_target: Option<&Value>, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
-        self.enforce_value_in_same_runtime(func);
+    pub fn call_constructor(&self, func: &Object, new_target: Option<&Value>, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
+        self.enforce_ref_value_in_same_runtime(func);
 
         if let Some(new_target) = new_target {
             self.enforce_value_in_same_runtime(new_target);
