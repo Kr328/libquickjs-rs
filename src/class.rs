@@ -20,7 +20,11 @@ pub trait Class: Send + 'static {
         this: &Value,
         args: &[Value],
         options: CallOptions,
-    ) -> Result<Value<'rt>, Value<'rt>>;
+    ) -> Result<Value<'rt>, Value<'rt>> {
+        let _ = (ctx, func, this, args, options);
+
+        Ok(Value::Undefined)
+    }
 
     fn gc_mark<M: GCMarker>(&self, marker: &M) {
         let _ = marker;
