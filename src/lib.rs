@@ -15,21 +15,23 @@ use rquickjs_sys::{
     JS_AddIntrinsicMapSet, JS_AddIntrinsicPromise, JS_AddIntrinsicProxy, JS_AddIntrinsicRegExp, JS_AddIntrinsicRegExpCompiler,
     JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2, JS_ClearUncatchableError,
     JS_DefineProperty, JS_DefinePropertyGetSet, JS_DefinePropertyValue, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
-    JS_DeleteProperty, JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_Eval, JS_EvalFunction, JS_EvalThis,
-    JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum, JS_FreeRuntime, JS_FreeValueRT, JS_FreezeObject,
-    JS_GetClassID, JS_GetClassProto, JS_GetException, JS_GetFunctionProto, JS_GetGlobalObject, JS_GetLength, JS_GetOpaque,
-    JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr, JS_GetPropertyUint32, JS_GetPrototype,
-    JS_GetRuntime, JS_GetRuntimeOpaque, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsConstructor, JS_IsDate, JS_IsEqual,
+    JS_DeleteProperty, JS_DetachArrayBuffer, JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_Eval, JS_EvalFunction,
+    JS_EvalThis, JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum, JS_FreeRuntime, JS_FreeValueRT,
+    JS_FreezeObject, JS_GetArrayBuffer, JS_GetClassID, JS_GetClassProto, JS_GetException, JS_GetFunctionProto,
+    JS_GetGlobalObject, JS_GetLength, JS_GetOpaque, JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr,
+    JS_GetPropertyUint32, JS_GetPrototype, JS_GetRuntime, JS_GetRuntimeOpaque, JS_GetTypedArrayBuffer, JS_GetTypedArrayType,
+    JS_GetUint8Array, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsArrayBuffer, JS_IsConstructor, JS_IsDate, JS_IsEqual,
     JS_IsError, JS_IsExtensible, JS_IsFunction, JS_IsInstanceOf, JS_IsMap, JS_IsPromise, JS_IsRegExp, JS_IsRegisteredClass,
     JS_IsSameValue, JS_IsSameValueZero, JS_IsStrictEqual, JS_IsUncatchableError, JS_JSONStringify, JS_MarkValue, JS_NewArray,
-    JS_NewAtomLen, JS_NewAtomUInt32, JS_NewBigInt64, JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext,
-    JS_NewContextRaw, JS_NewDate, JS_NewError, JS_NewFloat64, JS_NewNumber, JS_NewObject, JS_NewObjectClass, JS_NewObjectProto,
-    JS_NewObjectProtoClass, JS_NewPromiseCapability, JS_NewRuntime, JS_NewStringLen, JS_NewSymbol, JS_ParseJSON,
-    JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject, JS_ResolveModule, JS_RunGC, JS_SealObject,
-    JS_SetClassProto, JS_SetConstructorBit, JS_SetLength, JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr,
-    JS_SetPropertyUint32, JS_SetPrototype, JS_SetRuntimeOpaque, JS_SetUncatchableError, JS_Throw, JS_ThrowTypeError,
-    JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToNumber, JS_ToObject,
-    JS_ToObjectString, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom, JS_WriteObject, js_free,
+    JS_NewArrayBuffer, JS_NewArrayBufferCopy, JS_NewAtomLen, JS_NewAtomUInt32, JS_NewBigInt64, JS_NewBigUint64, JS_NewClass,
+    JS_NewClassID, JS_NewContext, JS_NewContextRaw, JS_NewDate, JS_NewError, JS_NewFloat64, JS_NewNumber, JS_NewObject,
+    JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_NewPromiseCapability, JS_NewRuntime, JS_NewStringLen,
+    JS_NewSymbol, JS_NewTypedArray, JS_NewUint8Array, JS_NewUint8ArrayCopy, JS_ParseJSON, JS_PreventExtensions, JS_PromiseResult,
+    JS_PromiseState, JS_ReadObject, JS_ResolveModule, JS_RunGC, JS_SealObject, JS_SetClassProto, JS_SetConstructorBit,
+    JS_SetLength, JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype,
+    JS_SetRuntimeOpaque, JS_SetUncatchableError, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2,
+    JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToNumber, JS_ToObject, JS_ToObjectString, JS_ToPropertyKey,
+    JS_ToString, JS_ValueToAtom, JS_WriteObject, js_free,
 };
 
 use crate::utils::{
@@ -327,6 +329,23 @@ impl Display for NotAPromise {
 }
 
 impl std::error::Error for NotAPromise {}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TypedArrayType(rquickjs_sys::JSTypedArrayEnum);
+
+impl TypedArrayType {
+    pub const UINT8C: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_UINT8C);
+    pub const INT8: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_INT8);
+    pub const UINT8: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_UINT8);
+    pub const INT16: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_INT16);
+    pub const UINT16: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_UINT16);
+    pub const INT32: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_INT32);
+    pub const UINT32: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_UINT32);
+    pub const BIG_INT64: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_BIG_INT64);
+    pub const BIG_UINT64: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_BIG_UINT64);
+    pub const FLOAT32: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_FLOAT32);
+    pub const FLOAT64: TypedArrayType = TypedArrayType(rquickjs_sys::JSTypedArrayEnum_JS_TYPED_ARRAY_FLOAT64);
+}
 
 bitflags! {
     #[derive(Copy, Clone, Default)]
@@ -1456,6 +1475,169 @@ impl<'rt> Context<'rt> {
 
     pub fn is_date(&self, value: &Value) -> bool {
         unsafe { JS_IsDate(value.as_raw()) }
+    }
+
+    fn new_buffer_from_data<B: AsMut<[u8]> + Sized>(
+        &self,
+        func: unsafe extern "C" fn(
+            ctx: *mut rquickjs_sys::JSContext,
+            buf: *mut u8,
+            len: rquickjs_sys::size_t,
+            free_func: rquickjs_sys::JSFreeArrayBufferDataFunc,
+            opaque: *mut rquickjs_sys::c_void,
+            is_shared: bool,
+        ) -> rquickjs_sys::JSValue,
+        data: B,
+        shared: bool,
+    ) -> Result<Value<'rt>, Value<'rt>> {
+        self.try_catch(move || unsafe {
+            extern "C" fn free_data<B>(
+                _: *mut rquickjs_sys::JSRuntime,
+                opaque: *mut rquickjs_sys::c_void,
+                _: *mut rquickjs_sys::c_void,
+            ) {
+                unsafe {
+                    let _ = Box::from_raw(opaque as *mut B);
+                }
+            }
+
+            let opaque = Box::into_raw(Box::new(data));
+
+            let ret = func(
+                self.ptr.as_ptr(),
+                (*opaque).as_mut().as_mut_ptr(),
+                (*opaque).as_mut().len() as _,
+                Some(free_data::<B>),
+                opaque as _,
+                shared,
+            );
+            match Value::from_raw(self.rt, ret) {
+                Ok(v) => Ok(v),
+                Err(ex) => {
+                    let _ = Box::from_raw(opaque);
+
+                    Err(ex)
+                }
+            }
+        })
+    }
+
+    fn new_buffer_copy_from_slice(
+        &self,
+        func: unsafe extern "C" fn(
+            ctx: *mut rquickjs_sys::JSContext,
+            buf: *const u8,
+            len: rquickjs_sys::size_t,
+        ) -> rquickjs_sys::JSValue,
+        data: &[u8],
+    ) -> Result<Value<'rt>, Value<'rt>> {
+        self.try_catch(move || unsafe {
+            let ret = func(self.ptr.as_ptr(), data.as_ptr(), data.len() as _);
+            Value::from_raw(self.rt, ret)
+        })
+    }
+
+    pub fn new_array_buffer<B: AsMut<[u8]> + Sized>(&self, data: B, shared: bool) -> Result<Value<'rt>, Value<'rt>> {
+        self.new_buffer_from_data(JS_NewArrayBuffer, data, shared)
+    }
+
+    pub fn new_array_buffer_copy(&self, data: &[u8]) -> Result<Value<'rt>, Value<'rt>> {
+        self.new_buffer_copy_from_slice(JS_NewArrayBufferCopy, data)
+    }
+
+    pub fn detach_array_buffer(&self, value: &Value) -> Result<(), Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        unsafe {
+            self.try_catch(|| {
+                JS_DetachArrayBuffer(self.ptr.as_ptr(), value.as_raw());
+                Ok(())
+            })
+        }
+    }
+
+    pub unsafe fn get_array_buffer<'v>(&self, value: &'v Value) -> Result<&'v mut [u8], Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let mut len = 0;
+            let ptr = JS_GetArrayBuffer(self.ptr.as_ptr(), &mut len, value.as_raw());
+            if ptr.is_null() {
+                return Err(Exception);
+            } else {
+                Ok(std::slice::from_raw_parts_mut(ptr, len as _))
+            }
+        })
+    }
+
+    pub fn is_array_buffer(&self, value: &Value) -> bool {
+        self.enforce_value_in_same_runtime(value);
+
+        unsafe { JS_IsArrayBuffer(value.as_raw()) }
+    }
+
+    pub unsafe fn get_uint8_array<'v>(&self, value: &'v Value) -> Result<&'v mut [u8], Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let mut len = 0;
+            let ptr = JS_GetUint8Array(self.ptr.as_ptr(), &mut len, value.as_raw());
+            if ptr.is_null() {
+                return Err(Exception);
+            } else {
+                Ok(std::slice::from_raw_parts_mut(ptr, len as _))
+            }
+        })
+    }
+
+    pub fn new_typed_array_buffer(&self, values: &[Value], kind: TypedArrayType) -> Result<Value<'rt>, Value<'rt>> {
+        self.try_catch(|| unsafe {
+            let mut args = values.into_iter().map(|v| v.as_raw()).collect::<MaybeTinyVec<_, 32>>();
+
+            let value = JS_NewTypedArray(self.ptr.as_ptr(), args.len() as _, args.as_mut_ptr(), kind.0);
+            Value::from_raw(self.rt, value)
+        })
+    }
+
+    pub fn get_typed_array_buffer(&self, value: &Value) -> Result<(Value<'rt>, usize, usize, usize), Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let mut bytes_offset = 0;
+            let mut bytes_length = 0;
+            let mut bytes_per_element = 0;
+
+            let ret = JS_GetTypedArrayBuffer(
+                self.ptr.as_ptr(),
+                value.as_raw(),
+                &mut bytes_offset,
+                &mut bytes_length,
+                &mut bytes_per_element,
+            );
+            let buffer = Value::from_raw(self.rt, ret)?;
+            Ok((buffer, bytes_offset as _, bytes_length as _, bytes_per_element as _))
+        })
+    }
+
+    pub fn get_typed_array_type(&self, value: &Value) -> Result<TypedArrayType, Value<'rt>> {
+        self.enforce_value_in_same_runtime(value);
+
+        self.try_catch(|| unsafe {
+            let kind = JS_GetTypedArrayType(value.as_raw());
+            if kind < 0 {
+                Err(Exception)
+            } else {
+                Ok(TypedArrayType(kind as _))
+            }
+        })
+    }
+
+    pub fn new_uint8_array_buffer<B: AsMut<[u8]> + Sized>(&self, data: B, shared: bool) -> Result<Value<'rt>, Value<'rt>> {
+        self.new_buffer_from_data(JS_NewUint8Array, data, shared)
+    }
+
+    pub fn new_uint8_array_buffer_copy(&self, data: &[u8]) -> Result<Value<'rt>, Value<'rt>> {
+        self.new_buffer_copy_from_slice(JS_NewUint8ArrayCopy, data)
     }
 
     pub fn parse_json(&self, json: &str, filename: &str) -> Result<Value<'rt>, Value<'rt>> {
