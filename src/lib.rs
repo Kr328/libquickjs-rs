@@ -894,7 +894,7 @@ impl<'rt> Context<'rt> {
                                 let args = (0..argc)
                                     .into_iter()
                                     .map(|v| ManuallyDrop::new(Value::from_raw(&rt, argv.offset(v as _).read()).unwrap()))
-                                    .collect::<Vec<_>>();
+                                    .collect::<MaybeTinyVec<_, 16>>();
                                 let options = CallOptions {
                                     constructor: (flags as u32) & rquickjs_sys::JS_CALL_FLAG_CONSTRUCTOR > 0,
                                 };
@@ -1244,12 +1244,13 @@ impl<'rt> Context<'rt> {
     }
 
     fn convert_value_to_raw_value<const TINY_CAP: usize>(&self, args: &[Value]) -> MaybeTinyVec<rquickjs_sys::JSValue, TINY_CAP> {
-        let mut vec = MaybeTinyVec::new();
-        for arg in args {
-            self.enforce_value_in_same_runtime(arg);
-            vec.push(arg.as_raw());
-        }
-        vec
+        args.iter()
+            .map(|v| {
+                self.enforce_value_in_same_runtime(v);
+
+                v.as_raw()
+            })
+            .collect()
     }
 
     pub fn call(&self, func: &Value, this: &Value, args: &[Value]) -> Result<Value<'rt>, Value<'rt>> {
@@ -1366,7 +1367,7 @@ impl<'rt> Context<'rt> {
                 self.ptr.as_ptr(),
                 this_obj.as_raw(),
                 prop.as_raw(),
-                value.as_raw(),
+                value.into_raw(),
                 flags.bits() as _,
             );
             if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
@@ -1407,7 +1408,13 @@ impl<'rt> Context<'rt> {
         self.enforce_value_in_same_runtime(&value);
 
         self.try_catch(|| unsafe {
-            let ret = JS_DefinePropertyValueUint32(self.ptr.as_ptr(), this_obj.as_raw(), prop, value.as_raw(), flags.bits() as _);
+            let ret = JS_DefinePropertyValueUint32(
+                self.ptr.as_ptr(),
+                this_obj.as_raw(),
+                prop,
+                value.into_raw(),
+                flags.bits() as _,
+            );
             if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
         })
     }
@@ -1430,8 +1437,8 @@ impl<'rt> Context<'rt> {
                 self.ptr.as_ptr(),
                 this_obj.as_raw(),
                 prop.as_raw(),
-                getter.as_raw(),
-                setter.as_raw(),
+                getter.into_raw(),
+                setter.into_raw(),
                 flags.bits() as _,
             );
             if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
@@ -1613,7 +1620,7 @@ impl<'rt> Context<'rt> {
 
     pub fn new_typed_array_buffer(&self, values: &[Value], kind: TypedArrayType) -> Result<Value<'rt>, Value<'rt>> {
         self.try_catch(|| unsafe {
-            let mut args = values.into_iter().map(|v| v.as_raw()).collect::<MaybeTinyVec<_, 32>>();
+            let mut args = self.convert_value_to_raw_value::<16>(values);
 
             let value = JS_NewTypedArray(self.ptr.as_ptr(), args.len() as _, args.as_mut_ptr(), kind.0);
             Value::from_raw(self.rt, value)
