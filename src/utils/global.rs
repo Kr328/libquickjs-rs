@@ -17,11 +17,19 @@ pub struct GlobalHolder<V> {
     free: fn(NonNull<rquickjs_sys::JSRuntime>, &V),
 }
 
-impl<V> Drop for GlobalHolder<V> {
-    fn drop(&mut self) {
+impl<V> GlobalHolder<V> {
+    pub fn clear(&mut self) {
         for record in std::mem::take(&mut self.records) {
+            record.detached.store(true, Ordering::Relaxed);
+
             (self.free)(record.runtime, &record.value);
         }
+    }
+}
+
+impl<V> Drop for GlobalHolder<V> {
+    fn drop(&mut self) {
+        self.clear();
     }
 }
 
@@ -77,6 +85,10 @@ impl<T> Global<T> {
     }
 
     pub fn to_local(&self, rt: NonNull<rquickjs_sys::JSRuntime>) -> Option<&T> {
-        if self.runtime == rt { Some(&self.record.value) } else { None }
+        if self.runtime == rt && !self.record.detached.load(Ordering::Relaxed) {
+            Some(&self.record.value)
+        } else {
+            None
+        }
     }
 }

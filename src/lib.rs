@@ -128,9 +128,15 @@ impl Drop for Runtime {
         unsafe {
             let store_ptr = JS_GetRuntimeOpaque(self.rt_ptr.as_ptr()) as *mut RuntimeStore;
 
+            let mut store = Box::from_raw(store_ptr);
+
+            store.global_contexts.get_mut().clear();
+            store.global_refs.get_mut().clear();
+            store.global_atoms.get_mut().clear();
+
             JS_FreeRuntime(self.rt_ptr.as_ptr());
 
-            let _ = Box::from_raw(store_ptr);
+            drop(store);
         }
     }
 }
