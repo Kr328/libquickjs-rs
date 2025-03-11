@@ -126,9 +126,11 @@ unsafe impl Send for Runtime {}
 impl Drop for Runtime {
     fn drop(&mut self) {
         unsafe {
-            let _ = Box::from_raw(JS_GetRuntimeOpaque(self.rt_ptr.as_ptr()) as *mut RuntimeStore);
+            let store_ptr = JS_GetRuntimeOpaque(self.rt_ptr.as_ptr()) as *mut RuntimeStore;
 
             JS_FreeRuntime(self.rt_ptr.as_ptr());
+
+            let _ = Box::from_raw(store_ptr);
         }
     }
 }
@@ -697,10 +699,7 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn get_string<'v>(&'v self, v: &'v Value<'rt>) -> Result<JSStr<'v>, Value<'rt>>
-    where
-        'rt: 'v,
-    {
+    pub fn get_string<'v>(&'v self, v: &'v Value) -> Result<JSStr<'v>, Value<'rt>> {
         self.enforce_value_in_same_runtime(v);
 
         unsafe {
@@ -797,7 +796,7 @@ impl<'rt> Context<'rt> {
         let class_id = self.rt.get_or_alloc_class_id::<C>();
 
         unsafe {
-            if JS_IsRegisteredClass(self.rt.as_raw().as_ptr(), class_id) {
+            if !JS_IsRegisteredClass(self.rt.as_raw().as_ptr(), class_id) {
                 let name = CString::new(C::NAME).expect("invalid function name");
 
                 let def = rquickjs_sys::JSClassDef {
@@ -1333,12 +1332,12 @@ impl<'rt> Context<'rt> {
         &self,
         this_obj: &Value,
         prop: &Atom,
-        value: &Value,
+        value: Value,
         flags: PropertyDescriptorFlags,
     ) -> Result<bool, Value<'rt>> {
         self.enforce_value_in_same_runtime(this_obj);
         self.enforce_atom_in_same_runtime(prop);
-        self.enforce_value_in_same_runtime(value);
+        self.enforce_value_in_same_runtime(&value);
 
         self.try_catch(|| unsafe {
             let ret = JS_DefinePropertyValue(
@@ -1356,11 +1355,11 @@ impl<'rt> Context<'rt> {
         &self,
         this_obj: &Value,
         prop: &str,
-        value: &Value,
+        value: Value,
         flags: PropertyDescriptorFlags,
     ) -> Result<bool, Value<'rt>> {
         self.enforce_value_in_same_runtime(this_obj);
-        self.enforce_value_in_same_runtime(value);
+        self.enforce_value_in_same_runtime(&value);
 
         self.try_catch(|| unsafe {
             let prop = self.new_c_string::<16>(prop)?;
@@ -1368,7 +1367,7 @@ impl<'rt> Context<'rt> {
                 self.ptr.as_ptr(),
                 this_obj.as_raw(),
                 prop.as_ptr(),
-                value.as_raw(),
+                value.into_raw(),
                 flags.bits() as _,
             );
             if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
@@ -1379,11 +1378,11 @@ impl<'rt> Context<'rt> {
         &self,
         this_obj: &Value,
         prop: u32,
-        value: &Value,
+        value: Value,
         flags: PropertyDescriptorFlags,
     ) -> Result<bool, Value<'rt>> {
         self.enforce_value_in_same_runtime(this_obj);
-        self.enforce_value_in_same_runtime(value);
+        self.enforce_value_in_same_runtime(&value);
 
         self.try_catch(|| unsafe {
             let ret = JS_DefinePropertyValueUint32(self.ptr.as_ptr(), this_obj.as_raw(), prop, value.as_raw(), flags.bits() as _);
@@ -1395,14 +1394,14 @@ impl<'rt> Context<'rt> {
         &self,
         this_obj: &Value,
         prop: &Atom,
-        getter: &Value,
-        setter: &Value,
+        getter: Value,
+        setter: Value,
         flags: PropertyDescriptorFlags,
     ) -> Result<bool, Value<'rt>> {
         self.enforce_value_in_same_runtime(this_obj);
         self.enforce_atom_in_same_runtime(prop);
-        self.enforce_value_in_same_runtime(getter);
-        self.enforce_value_in_same_runtime(setter);
+        self.enforce_value_in_same_runtime(&getter);
+        self.enforce_value_in_same_runtime(&setter);
 
         self.try_catch(|| unsafe {
             let ret = JS_DefinePropertyGetSet(
