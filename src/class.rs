@@ -1,4 +1,4 @@
-use crate::{Context, GlobalValue, Runtime, value::Value};
+use crate::{Context, GlobalValue, value::Value};
 
 #[derive(Copy, Clone)]
 pub struct CallOptions {
@@ -28,9 +28,5 @@ pub trait Class: Send + 'static {
 
     fn gc_mark<M: GCMarker>(&self, marker: &M) {
         let _ = marker;
-    }
-
-    fn on_registered(rt: &Runtime) {
-        let _ = rt;
     }
 }

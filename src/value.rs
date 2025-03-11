@@ -26,6 +26,12 @@ pub struct RefValue<'rt, const TAG: i32> {
     ptr: *mut c_void,
 }
 
+impl<'rt, const TAG: i32> PartialEq for RefValue<'rt, TAG> {
+    fn eq(&self, other: &Self) -> bool {
+        self.rt.rt_ptr == other.rt.rt_ptr && self.ptr == other.ptr
+    }
+}
+
 impl<'rt, const TAG: i32> RefValue<'rt, TAG> {
     pub fn get_runtime(&self) -> &'rt Runtime {
         self.rt
@@ -97,7 +103,7 @@ pub type Module<'rt> = RefValue<'rt, JS_TAG_MODULE>;
 pub type FunctionByteCode<'rt> = RefValue<'rt, JS_TAG_FUNCTION_BYTECODE>;
 pub type Object<'rt> = RefValue<'rt, JS_TAG_OBJECT>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value<'rt> {
     BigInt(BigInt<'rt>),
     Symbol(Symbol<'rt>),
