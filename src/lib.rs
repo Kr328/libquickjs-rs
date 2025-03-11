@@ -205,6 +205,10 @@ impl Runtime {
         }
     }
 
+    fn get_class_id<C: Class>(&self) -> Option<rquickjs_sys::JSClassID> {
+        self.store().class_ids.borrow().get(&TypeId::of::<C>()).copied()
+    }
+
     fn get_or_alloc_class_id<C: Class>(&self) -> rquickjs_sys::JSClassID {
         let store = self.store();
 
@@ -952,6 +956,18 @@ impl<'rt> Context<'rt> {
 
             Value::from_raw(self.rt, value)
         })
+    }
+
+    pub fn get_class_opaque<C: Class>(&self, value: &Value) -> Option<&C> {
+        self.enforce_value_in_same_runtime(value);
+
+        unsafe {
+            if let Some(class_id) = self.rt.get_class_id::<C>() {
+                (JS_GetOpaque(value.as_raw(), class_id) as *const C).as_ref()
+            } else {
+                None
+            }
+        }
     }
 
     pub fn set_constructor_bit(&self, value: &Value, is_constructor: bool) -> bool {
