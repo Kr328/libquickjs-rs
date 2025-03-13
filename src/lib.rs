@@ -48,7 +48,7 @@ mod func;
 mod utils;
 mod value;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct InvalidRuntime;
 
 impl Display for InvalidRuntime {
@@ -63,13 +63,10 @@ pub struct GlobalContext {
     global: Global<NonNull<rquickjs_sys::JSContext>>,
 }
 
-unsafe impl Send for GlobalContext {}
-unsafe impl Sync for GlobalContext {}
-
 impl GlobalContext {
     pub fn to_local<'rt>(&self, rt: &'rt Runtime) -> Result<Context<'rt>, InvalidRuntime> {
         self.global
-            .to_local(rt.rt_ptr)
+            .get(Some(rt.rt_ptr))
             .map(|ctx| Context {
                 rt,
                 ptr: unsafe { enforce_not_out_of_memory(JS_DupContext(ctx.as_ptr())) },
@@ -82,14 +79,11 @@ pub struct GlobalValue {
     global: Global<rquickjs_sys::JSValue>,
 }
 
-unsafe impl Send for GlobalValue {}
-unsafe impl Sync for GlobalValue {}
-
 impl GlobalValue {
     pub fn to_local<'rt>(&self, rt: &'rt Runtime) -> Result<Value<'rt>, InvalidRuntime> {
         self.global
-            .to_local(rt.rt_ptr)
-            .map(|value| unsafe { Value::from_raw(rt, JS_DupValueRT(rt.as_raw().as_ptr(), *value)).unwrap() })
+            .get(Some(rt.rt_ptr))
+            .map(|value| unsafe { Value::from_raw(rt, JS_DupValueRT(rt.as_raw().as_ptr(), value)).unwrap() })
             .ok_or(InvalidRuntime)
     }
 }
@@ -98,23 +92,25 @@ pub struct GlobalAtom {
     global: Global<rquickjs_sys::JSAtom>,
 }
 
-unsafe impl Send for GlobalAtom {}
-unsafe impl Sync for GlobalAtom {}
-
 impl GlobalAtom {
     pub fn to_local<'rt>(&self, ctx: &Context<'rt>) -> Result<Atom<'rt>, InvalidRuntime> {
         self.global
-            .to_local(ctx.rt.rt_ptr)
-            .map(|atom| unsafe { Atom::from_raw(ctx.rt, JS_DupAtom(ctx.ptr.as_ptr(), *atom)) })
+            .get(Some(ctx.rt.rt_ptr))
+            .map(|atom| unsafe { Atom::from_raw(ctx.rt, JS_DupAtom(ctx.ptr.as_ptr(), atom)) })
             .ok_or(InvalidRuntime)
     }
 }
 
-struct RuntimeStore {
-    class_ids: RefCell<HashMap<TypeId, u32>>,
-    global_contexts: RefCell<GlobalHolder<NonNull<rquickjs_sys::JSContext>>>,
-    global_refs: RefCell<GlobalHolder<rquickjs_sys::JSValue>>,
-    global_atoms: RefCell<GlobalHolder<rquickjs_sys::JSAtom>>,
+enum RuntimeStore {
+    Running {
+        class_ids: RefCell<HashMap<TypeId, u32>>,
+        global_contexts: RefCell<GlobalHolder<NonNull<rquickjs_sys::JSContext>>>,
+        global_refs: RefCell<GlobalHolder<rquickjs_sys::JSValue>>,
+        global_atoms: RefCell<GlobalHolder<rquickjs_sys::JSAtom>>,
+    },
+    Destroying {
+        class_ids: HashMap<TypeId, u32>,
+    },
 }
 
 pub struct Runtime {
@@ -126,24 +122,27 @@ unsafe impl Send for Runtime {}
 impl Drop for Runtime {
     fn drop(&mut self) {
         unsafe {
-            let store_ptr = JS_GetRuntimeOpaque(self.rt_ptr.as_ptr()) as *mut RuntimeStore;
+            let store_ptr = &mut *(JS_GetRuntimeOpaque(self.rt_ptr.as_ptr()) as *mut RuntimeStore);
 
-            let mut store = Box::from_raw(store_ptr);
-
-            store.global_contexts.get_mut().clear();
-            store.global_refs.get_mut().clear();
-            store.global_atoms.get_mut().clear();
+            *store_ptr = RuntimeStore::Destroying {
+                class_ids: match store_ptr {
+                    RuntimeStore::Running { class_ids, .. } => class_ids.take(),
+                    RuntimeStore::Destroying { .. } => {
+                        panic!("runtime already destroyed")
+                    }
+                },
+            };
 
             JS_FreeRuntime(self.rt_ptr.as_ptr());
 
-            drop(store);
+            let _ = Box::from_raw(store_ptr as *mut RuntimeStore);
         }
     }
 }
 
 impl Runtime {
     pub fn new() -> Self {
-        let store = RuntimeStore {
+        let store = RuntimeStore::Running {
             class_ids: RefCell::new(HashMap::new()),
             global_contexts: RefCell::new(GlobalHolder::new(|_, ctx| unsafe { JS_FreeContext(ctx.as_ptr()) })),
             global_refs: RefCell::new(GlobalHolder::new(|rt, value| unsafe { JS_FreeValueRT(rt.as_ptr(), *value) })),
@@ -167,7 +166,7 @@ impl Runtime {
         unsafe {
             let ptr = JS_GetRuntimeOpaque(self.rt_ptr.as_ptr());
 
-            &*(ptr as *mut RuntimeStore)
+            (ptr as *mut RuntimeStore).as_ref().expect("runtime detached")
         }
     }
 
@@ -191,8 +190,13 @@ impl Runtime {
         if self.rt_ptr != ctx.rt.rt_ptr {
             Err(InvalidRuntime)
         } else {
+            let g = match self.store() {
+                RuntimeStore::Running { global_contexts, .. } => global_contexts,
+                RuntimeStore::Destroying { .. } => panic!("runtime destroying"),
+            };
+
             Ok(GlobalContext {
-                global: self.store().global_contexts.borrow_mut().new_global(self.as_raw(), unsafe {
+                global: g.borrow_mut().new_global(self.as_raw(), unsafe {
                     enforce_not_out_of_memory(JS_DupContext(ctx.ptr.as_ptr()))
                 }),
             })
@@ -203,8 +207,13 @@ impl Runtime {
         if matches!(value.get_runtime(), Some(rt) if rt.rt_ptr != self.rt_ptr) {
             Err(InvalidRuntime)
         } else {
+            let g = match self.store() {
+                RuntimeStore::Running { global_refs, .. } => global_refs,
+                RuntimeStore::Destroying { .. } => panic!("runtime destroying"),
+            };
+
             Ok(GlobalValue {
-                global: self.store().global_refs.borrow_mut().new_global(self.as_raw(), unsafe {
+                global: g.borrow_mut().new_global(self.as_raw(), unsafe {
                     JS_DupValueRT(self.as_raw().as_ptr(), value.as_raw())
                 }),
             })
@@ -214,17 +223,18 @@ impl Runtime {
     fn get_or_alloc_class_id<C: Class>(&self) -> rquickjs_sys::JSClassID {
         let store = self.store();
 
-        if let Some(v) = store.class_ids.borrow().get(&TypeId::of::<C>()) {
-            return *v;
-        }
-
-        match store.class_ids.borrow_mut().entry(TypeId::of::<C>()) {
-            Entry::Occupied(o) => *o.get(),
-            Entry::Vacant(v) => {
-                let mut id = 0;
-
-                unsafe { *v.insert(JS_NewClassID(self.as_raw().as_ptr(), &mut id)) }
-            }
+        match store {
+            RuntimeStore::Running { class_ids, .. } => match class_ids.borrow_mut().entry(TypeId::of::<C>()) {
+                Entry::Occupied(o) => *o.get(),
+                Entry::Vacant(v) => {
+                    let mut id = 0;
+                    unsafe { v.insert(JS_NewClassID(self.as_raw().as_ptr(), &mut id)).clone() }
+                }
+            },
+            RuntimeStore::Destroying { class_ids } => class_ids
+                .get(&TypeId::of::<C>())
+                .expect("register class on runtime destroying")
+                .clone(),
         }
     }
 }
@@ -777,12 +787,14 @@ impl<'rt> Context<'rt> {
     pub fn new_global_atom(&self, atom: &Atom) -> GlobalAtom {
         self.enforce_atom_in_same_runtime(atom);
 
-        let global = self
-            .rt
-            .store()
-            .global_atoms
+        let g = match self.rt.store() {
+            RuntimeStore::Running { global_atoms, .. } => global_atoms,
+            RuntimeStore::Destroying { .. } => panic!("runtime destroying"),
+        };
+
+        let global = g
             .borrow_mut()
-            .new_global(self.rt.rt_ptr, atom.as_raw());
+            .new_global(self.rt.rt_ptr, unsafe { JS_DupAtom(self.ptr.as_ptr(), atom.as_raw()) });
 
         GlobalAtom { global }
     }
@@ -836,7 +848,9 @@ impl<'rt> Context<'rt> {
                                 }
 
                                 fn mark_global_value(&self, value: &GlobalValue) {
-                                    unsafe { JS_MarkValue(self.rt.as_ptr(), *value.global.as_raw(), self.mark_func) }
+                                    if let Some(v) = value.global.get(None) {
+                                        unsafe { JS_MarkValue(self.rt.as_ptr(), v, self.mark_func) }
+                                    }
                                 }
                             }
 

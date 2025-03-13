@@ -1,7 +1,7 @@
 use std::{
     ptr::NonNull,
     sync::{
-        Arc,
+        Arc, Weak,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -17,19 +17,11 @@ pub struct GlobalHolder<V> {
     free: fn(NonNull<rquickjs_sys::JSRuntime>, &V),
 }
 
-impl<V> GlobalHolder<V> {
-    pub fn clear(&mut self) {
-        for record in std::mem::take(&mut self.records) {
-            record.detached.store(true, Ordering::Relaxed);
-
-            (self.free)(record.runtime, &record.value);
-        }
-    }
-}
-
 impl<V> Drop for GlobalHolder<V> {
     fn drop(&mut self) {
-        self.clear();
+        for record in std::mem::take(&mut self.records) {
+            (self.free)(record.runtime, &record.value);
+        }
     }
 }
 
@@ -62,33 +54,38 @@ impl<V> GlobalHolder<V> {
             value,
         });
 
-        self.records.push(record.clone());
+        let record_weak = Arc::downgrade(&record);
 
-        Global { runtime, record }
+        self.records.push(record);
+
+        Global { record: record_weak }
     }
 }
 
 pub struct Global<T> {
-    runtime: NonNull<rquickjs_sys::JSRuntime>,
-    record: Arc<GlobalRecord<T>>,
+    record: Weak<GlobalRecord<T>>,
 }
+
+unsafe impl<T> Send for Global<T> {}
 
 impl<T> Drop for Global<T> {
     fn drop(&mut self) {
-        self.record.detached.store(true, Ordering::Relaxed);
+        if let Some(r) = self.record.upgrade() {
+            r.detached.store(true, Ordering::Relaxed);
+        }
     }
 }
 
-impl<T> Global<T> {
-    pub fn as_raw(&self) -> &T {
-        &self.record.value
-    }
+impl<T: Clone> Global<T> {
+    pub fn get(&self, rt: Option<NonNull<rquickjs_sys::JSRuntime>>) -> Option<T> {
+        let record = self.record.upgrade()?;
 
-    pub fn to_local(&self, rt: NonNull<rquickjs_sys::JSRuntime>) -> Option<&T> {
-        if self.runtime == rt && !self.record.detached.load(Ordering::Relaxed) {
-            Some(&self.record.value)
-        } else {
-            None
+        if let Some(rt) = rt {
+            if record.runtime != rt {
+                return None;
+            }
         }
+
+        Some(record.value.clone())
     }
 }
