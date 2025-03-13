@@ -16,8 +16,8 @@ use rquickjs_sys::{
     JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2, JS_ClearUncatchableError,
     JS_DefineProperty, JS_DefinePropertyGetSet, JS_DefinePropertyValue, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
     JS_DeleteProperty, JS_DetachArrayBuffer, JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_Eval, JS_EvalFunction,
-    JS_EvalThis, JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum, JS_FreeRuntime, JS_FreeValueRT,
-    JS_FreezeObject, JS_GetArrayBuffer, JS_GetClassID, JS_GetClassProto, JS_GetException, JS_GetFunctionProto,
+    JS_EvalThis, JS_ExecutePendingJob, JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum, JS_FreeRuntime,
+    JS_FreeValueRT, JS_FreezeObject, JS_GetArrayBuffer, JS_GetClassID, JS_GetClassProto, JS_GetException, JS_GetFunctionProto,
     JS_GetGlobalObject, JS_GetLength, JS_GetOpaque, JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr,
     JS_GetPropertyUint32, JS_GetPrototype, JS_GetRuntime, JS_GetRuntimeOpaque, JS_GetTypedArrayBuffer, JS_GetTypedArrayType,
     JS_GetUint8Array, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsArrayBuffer, JS_IsConstructor, JS_IsDate, JS_IsEqual,
@@ -203,6 +203,15 @@ impl Runtime {
         }
     }
 
+    pub fn execute_pending_jobs(&self) {
+        unsafe {
+            let mut ctx = std::ptr::null_mut();
+            while JS_ExecutePendingJob(self.rt_ptr.as_ptr(), &mut ctx) != 0 {
+                let _ = ctx; // borrow only
+            }
+        }
+    }
+
     pub fn new_global_value(&self, value: &Value) -> Result<GlobalValue, InvalidRuntime> {
         if matches!(value.get_runtime(), Some(rt) if rt.rt_ptr != self.rt_ptr) {
             Err(InvalidRuntime)
@@ -255,6 +264,9 @@ impl<'rt> Clone for Context<'rt> {
 
 impl<'rt> Drop for Context<'rt> {
     fn drop(&mut self) {
+        // Execute all pending jobs to avoid dangling context pointers in jobs list
+        self.rt.execute_pending_jobs();
+
         unsafe { JS_FreeContext(self.ptr.as_ptr()) }
     }
 }
