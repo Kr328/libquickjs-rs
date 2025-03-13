@@ -643,13 +643,8 @@ impl<'rt> Context<'rt> {
         }
     }
 
-    pub fn new_error(&self) -> Value<'rt> {
-        unsafe {
-            match self.try_catch(|| Value::from_raw(self.rt, JS_NewError(self.ptr.as_ptr()))) {
-                Ok(not_err) => not_err,
-                Err(err) => err,
-            }
-        }
+    pub fn new_error(&self) -> Result<Value<'rt>, Value<'rt>> {
+        unsafe { self.try_catch(|| Value::from_raw(self.rt, JS_NewError(self.ptr.as_ptr()))) }
     }
 
     pub fn is_function(&self, value: &Value) -> bool {
