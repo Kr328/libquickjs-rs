@@ -62,11 +62,13 @@ impl<V> GlobalHolder<V> {
     }
 }
 
+#[derive(Clone)]
 pub struct Global<T> {
     record: Weak<GlobalRecord<T>>,
 }
 
 unsafe impl<T> Send for Global<T> {}
+unsafe impl<T> Sync for Global<T> {}
 
 impl<T> Drop for Global<T> {
     fn drop(&mut self) {
