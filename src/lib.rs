@@ -59,6 +59,7 @@ impl Display for InvalidRuntime {
 
 impl std::error::Error for InvalidRuntime {}
 
+#[derive(Clone)]
 pub struct GlobalContext {
     global: Global<NonNull<rquickjs_sys::JSContext>>,
 }
@@ -75,6 +76,7 @@ impl GlobalContext {
     }
 }
 
+#[derive(Clone)]
 pub struct GlobalValue {
     global: Global<rquickjs_sys::JSValue>,
 }
@@ -88,6 +90,7 @@ impl GlobalValue {
     }
 }
 
+#[derive(Clone)]
 pub struct GlobalAtom {
     global: Global<rquickjs_sys::JSAtom>,
 }
