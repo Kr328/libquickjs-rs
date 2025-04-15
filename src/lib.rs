@@ -15,23 +15,23 @@ use rquickjs_sys::{
     JS_AddIntrinsicMapSet, JS_AddIntrinsicPromise, JS_AddIntrinsicProxy, JS_AddIntrinsicRegExp, JS_AddIntrinsicRegExpCompiler,
     JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2, JS_ClearUncatchableError,
     JS_DefineProperty, JS_DefinePropertyGetSet, JS_DefinePropertyValue, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
-    JS_DeleteProperty, JS_DetachArrayBuffer, JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_Eval, JS_EvalFunction,
-    JS_EvalThis, JS_ExecutePendingJob, JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum, JS_FreeRuntime,
-    JS_FreeValueRT, JS_FreezeObject, JS_GetArrayBuffer, JS_GetClassID, JS_GetClassProto, JS_GetException, JS_GetFunctionProto,
-    JS_GetGlobalObject, JS_GetLength, JS_GetOpaque, JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr,
-    JS_GetPropertyUint32, JS_GetPrototype, JS_GetRuntime, JS_GetRuntimeOpaque, JS_GetTypedArrayBuffer, JS_GetTypedArrayType,
-    JS_GetUint8Array, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsArrayBuffer, JS_IsConstructor, JS_IsDate, JS_IsEqual,
-    JS_IsError, JS_IsExtensible, JS_IsFunction, JS_IsInstanceOf, JS_IsMap, JS_IsPromise, JS_IsRegExp, JS_IsRegisteredClass,
-    JS_IsSameValue, JS_IsSameValueZero, JS_IsStrictEqual, JS_IsUncatchableError, JS_JSONStringify, JS_MarkValue, JS_NewArray,
-    JS_NewArrayBuffer, JS_NewArrayBufferCopy, JS_NewAtomLen, JS_NewAtomUInt32, JS_NewBigInt64, JS_NewBigUint64, JS_NewClass,
-    JS_NewClassID, JS_NewContext, JS_NewContextRaw, JS_NewDate, JS_NewError, JS_NewFloat64, JS_NewNumber, JS_NewObject,
-    JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass, JS_NewPromiseCapability, JS_NewRuntime, JS_NewStringLen,
-    JS_NewSymbol, JS_NewTypedArray, JS_NewUint8Array, JS_NewUint8ArrayCopy, JS_ParseJSON, JS_PreventExtensions, JS_PromiseResult,
-    JS_PromiseState, JS_ReadObject, JS_ResolveModule, JS_RunGC, JS_SealObject, JS_SetClassProto, JS_SetConstructorBit,
-    JS_SetLength, JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype,
-    JS_SetRuntimeOpaque, JS_SetUncatchableError, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2,
-    JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToNumber, JS_ToObject, JS_ToObjectString, JS_ToPropertyKey,
-    JS_ToString, JS_ValueToAtom, JS_WriteObject, js_free,
+    JS_DeleteProperty, JS_DetachArrayBuffer, JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_EnqueueJob, JS_Eval,
+    JS_EvalFunction, JS_EvalThis, JS_ExecutePendingJob, JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum,
+    JS_FreeRuntime, JS_FreeValueRT, JS_FreezeObject, JS_GetArrayBuffer, JS_GetClassID, JS_GetClassProto, JS_GetException,
+    JS_GetFunctionProto, JS_GetGlobalObject, JS_GetLength, JS_GetOpaque, JS_GetOwnProperty, JS_GetOwnPropertyNames,
+    JS_GetProperty, JS_GetPropertyStr, JS_GetPropertyUint32, JS_GetPrototype, JS_GetRuntime, JS_GetRuntimeOpaque,
+    JS_GetTypedArrayBuffer, JS_GetTypedArrayType, JS_GetUint8Array, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsArrayBuffer,
+    JS_IsConstructor, JS_IsDate, JS_IsEqual, JS_IsError, JS_IsExtensible, JS_IsFunction, JS_IsInstanceOf, JS_IsMap, JS_IsPromise,
+    JS_IsRegExp, JS_IsRegisteredClass, JS_IsSameValue, JS_IsSameValueZero, JS_IsStrictEqual, JS_IsUncatchableError,
+    JS_JSONStringify, JS_MarkValue, JS_NewArray, JS_NewArrayBuffer, JS_NewArrayBufferCopy, JS_NewAtomLen, JS_NewAtomUInt32,
+    JS_NewBigInt64, JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext, JS_NewContextRaw, JS_NewDate, JS_NewError,
+    JS_NewFloat64, JS_NewNumber, JS_NewObject, JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass,
+    JS_NewPromiseCapability, JS_NewRuntime, JS_NewStringLen, JS_NewSymbol, JS_NewTypedArray, JS_NewUint8Array,
+    JS_NewUint8ArrayCopy, JS_ParseJSON, JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject, JS_ResolveModule,
+    JS_RunGC, JS_SealObject, JS_SetClassProto, JS_SetConstructorBit, JS_SetLength, JS_SetOpaque, JS_SetProperty,
+    JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype, JS_SetRuntimeOpaque, JS_SetUncatchableError,
+    JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext,
+    JS_ToNumber, JS_ToObject, JS_ToObjectString, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom, JS_WriteObject, js_free,
 };
 
 use crate::utils::{
@@ -67,7 +67,7 @@ pub struct GlobalContext {
 impl GlobalContext {
     pub fn to_local<'rt>(&self, rt: &'rt Runtime) -> Result<Context<'rt>, InvalidRuntime> {
         self.global
-            .get(Some(rt.rt_ptr))
+            .get(Some(rt.ptr))
             .map(|ctx| Context {
                 rt,
                 ptr: unsafe { enforce_not_out_of_memory(JS_DupContext(ctx.as_ptr())) },
@@ -84,7 +84,7 @@ pub struct GlobalValue {
 impl GlobalValue {
     pub fn to_local<'rt>(&self, rt: &'rt Runtime) -> Result<Value<'rt>, InvalidRuntime> {
         self.global
-            .get(Some(rt.rt_ptr))
+            .get(Some(rt.ptr))
             .map(|value| unsafe { Value::from_raw(rt, JS_DupValueRT(rt.as_raw().as_ptr(), value)).unwrap() })
             .ok_or(InvalidRuntime)
     }
@@ -98,7 +98,7 @@ pub struct GlobalAtom {
 impl GlobalAtom {
     pub fn to_local<'rt>(&self, ctx: &Context<'rt>) -> Result<Atom<'rt>, InvalidRuntime> {
         self.global
-            .get(Some(ctx.rt.rt_ptr))
+            .get(Some(ctx.rt.ptr))
             .map(|atom| unsafe { Atom::from_raw(ctx.rt, JS_DupAtom(ctx.ptr.as_ptr(), atom)) })
             .ok_or(InvalidRuntime)
     }
@@ -117,7 +117,7 @@ enum RuntimeStore {
 }
 
 pub struct Runtime {
-    rt_ptr: NonNull<rquickjs_sys::JSRuntime>,
+    ptr: NonNull<rquickjs_sys::JSRuntime>,
 }
 
 unsafe impl Send for Runtime {}
@@ -125,7 +125,7 @@ unsafe impl Send for Runtime {}
 impl Drop for Runtime {
     fn drop(&mut self) {
         unsafe {
-            let store_ptr = &mut *(JS_GetRuntimeOpaque(self.rt_ptr.as_ptr()) as *mut RuntimeStore);
+            let store_ptr = &mut *(JS_GetRuntimeOpaque(self.ptr.as_ptr()) as *mut RuntimeStore);
 
             *store_ptr = RuntimeStore::Destroying {
                 class_ids: match store_ptr {
@@ -136,7 +136,7 @@ impl Drop for Runtime {
                 },
             };
 
-            JS_FreeRuntime(self.rt_ptr.as_ptr());
+            JS_FreeRuntime(self.ptr.as_ptr());
 
             let _ = Box::from_raw(store_ptr as *mut RuntimeStore);
         }
@@ -157,40 +157,40 @@ impl Runtime {
 
             JS_SetRuntimeOpaque(ptr.as_ptr(), Box::into_raw(Box::new(store)) as *mut std::ffi::c_void);
 
-            Self { rt_ptr: ptr }
+            Self { ptr }
         }
     }
 
     pub fn as_raw(&self) -> NonNull<rquickjs_sys::JSRuntime> {
-        self.rt_ptr
+        self.ptr
     }
 
     fn store(&self) -> &RuntimeStore {
         unsafe {
-            let ptr = JS_GetRuntimeOpaque(self.rt_ptr.as_ptr());
+            let ptr = JS_GetRuntimeOpaque(self.ptr.as_ptr());
 
             (ptr as *mut RuntimeStore).as_ref().expect("runtime detached")
         }
     }
 
     pub fn run_gc(&self) {
-        unsafe { JS_RunGC(self.rt_ptr.as_ptr()) }
+        unsafe { JS_RunGC(self.ptr.as_ptr()) }
     }
 
     pub fn new_context(&self) -> Context {
-        let ctx_ptr = unsafe { enforce_not_out_of_memory(JS_NewContext(self.rt_ptr.as_ptr())) };
+        let ctx_ptr = unsafe { enforce_not_out_of_memory(JS_NewContext(self.ptr.as_ptr())) };
 
         Context { rt: self, ptr: ctx_ptr }
     }
 
     pub fn new_plain_context(&self) -> Context {
-        let ctx_ptr = unsafe { enforce_not_out_of_memory(JS_NewContextRaw(self.rt_ptr.as_ptr())) };
+        let ctx_ptr = unsafe { enforce_not_out_of_memory(JS_NewContextRaw(self.ptr.as_ptr())) };
 
         Context { rt: self, ptr: ctx_ptr }
     }
 
     pub fn new_global_context(&self, ctx: &Context) -> Result<GlobalContext, InvalidRuntime> {
-        if self.rt_ptr != ctx.rt.rt_ptr {
+        if self.ptr != ctx.rt.ptr {
             Err(InvalidRuntime)
         } else {
             let g = match self.store() {
@@ -209,14 +209,14 @@ impl Runtime {
     pub fn execute_pending_jobs(&self) {
         unsafe {
             let mut ctx = std::ptr::null_mut();
-            while JS_ExecutePendingJob(self.rt_ptr.as_ptr(), &mut ctx) != 0 {
+            while JS_ExecutePendingJob(self.ptr.as_ptr(), &mut ctx) != 0 {
                 let _ = ctx; // borrow only
             }
         }
     }
 
     pub fn new_global_value(&self, value: &Value) -> Result<GlobalValue, InvalidRuntime> {
-        if matches!(value.get_runtime(), Some(rt) if rt.rt_ptr != self.rt_ptr) {
+        if matches!(value.get_runtime(), Some(rt) if rt.ptr != self.ptr) {
             Err(InvalidRuntime)
         } else {
             let g = match self.store() {
@@ -411,18 +411,14 @@ impl<'rt> Context<'rt> {
         match value.get_runtime() {
             None => {}
             Some(rt) => {
-                assert_eq!(rt.rt_ptr, self.rt.rt_ptr, "supplied value not in same runtime")
+                assert_eq!(rt.ptr, self.rt.ptr, "supplied value not in same runtime")
             }
         }
     }
 
     #[inline]
     fn enforce_atom_in_same_runtime(&self, value: &Atom) {
-        assert_eq!(
-            value.get_runtime().rt_ptr,
-            self.rt.rt_ptr,
-            "supplied atom not in same runtime"
-        )
+        assert_eq!(value.get_runtime().ptr, self.rt.ptr, "supplied atom not in same runtime")
     }
 
     fn new_c_string<const TINY_CAP: usize>(&self, s: impl AsRef<str>) -> Result<MaybeTinyCString<TINY_CAP>, Exception> {
@@ -809,7 +805,7 @@ impl<'rt> Context<'rt> {
 
         let global = g
             .borrow_mut()
-            .new_global(self.rt.rt_ptr, unsafe { JS_DupAtom(self.ptr.as_ptr(), atom.as_raw()) });
+            .new_global(self.rt.ptr, unsafe { JS_DupAtom(self.ptr.as_ptr(), atom.as_raw()) });
 
         GlobalAtom { global }
     }
@@ -833,7 +829,7 @@ impl<'rt> Context<'rt> {
                         unsafe extern "C" fn finalizer<C: Class>(rt: *mut rquickjs_sys::JSRuntime, val: rquickjs_sys::JSValue) {
                             unsafe {
                                 let rt = ManuallyDrop::new(Runtime {
-                                    rt_ptr: NonNull::new(rt).unwrap(),
+                                    ptr: NonNull::new(rt).unwrap(),
                                 });
 
                                 let ptr = JS_GetOpaque(val, rt.get_or_alloc_class_id::<C>());
@@ -870,7 +866,7 @@ impl<'rt> Context<'rt> {
                             }
 
                             let rt = ManuallyDrop::new(Runtime {
-                                rt_ptr: NonNull::new(rt).unwrap(),
+                                ptr: NonNull::new(rt).unwrap(),
                             });
 
                             unsafe {
@@ -897,7 +893,7 @@ impl<'rt> Context<'rt> {
                         ) -> rquickjs_sys::JSValue {
                             unsafe {
                                 let rt = ManuallyDrop::new(Runtime {
-                                    rt_ptr: NonNull::new(JS_GetRuntime(ctx)).unwrap(),
+                                    ptr: NonNull::new(JS_GetRuntime(ctx)).unwrap(),
                                 });
                                 let ctx = ManuallyDrop::new(Context {
                                     rt: &rt,
@@ -1744,6 +1740,53 @@ impl<'rt> Context<'rt> {
             let ret = JS_ResolveModule(self.ptr.as_ptr(), module.as_raw());
             if ret < 0 { Err(Exception) } else { Ok(()) }
         })
+    }
+
+    pub fn enqueue_job<F: FnOnce() + Send + 'static>(&self, f: F) -> Result<(), Value<'rt>> {
+        struct FnHolder<F> {
+            f: Option<F>,
+        }
+
+        impl<F: Send + 'static> Class for FnHolder<F> {
+            const NAME: &'static str = "NativeFnHolder";
+        }
+
+        extern "C" fn call_job_fn<F: FnOnce() + Send + 'static>(
+            ctx: *mut rquickjs_sys::JSContext,
+            argc: i32,
+            argv: *mut rquickjs_sys::JSValue,
+        ) -> rquickjs_sys::JSValue {
+            assert_eq!(argc, 1);
+            assert!(!argv.is_null());
+
+            unsafe {
+                let rt = ManuallyDrop::new(Runtime {
+                    ptr: NonNull::new(JS_GetRuntime(ctx)).unwrap(),
+                });
+                let ctx = ManuallyDrop::new(Context {
+                    rt: &rt,
+                    ptr: NonNull::new(ctx).unwrap(),
+                });
+                let arg = ManuallyDrop::new(Value::from_raw(&rt, *argv).unwrap());
+
+                let fn_holder = ctx.get_class_opaque::<FnHolder<F>>(&arg).unwrap();
+                let fn_holder = &mut *(&raw const *fn_holder).cast_mut();
+
+                let f = fn_holder.f.take().unwrap();
+                f();
+            }
+
+            rquickjs_sys::JS_UNDEFINED
+        }
+
+        unsafe {
+            let arg = self.new_object_class(FnHolder { f: Some(f) }, None)?;
+
+            let ret = JS_EnqueueJob(self.ptr.as_ptr(), Some(call_job_fn::<F>), 1, [arg.as_raw()].as_mut_ptr());
+            assert!(ret >= 0, "out of memory");
+
+            Ok(())
+        }
     }
 }
 

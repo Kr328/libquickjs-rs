@@ -28,7 +28,7 @@ pub struct RefValue<'rt, const TAG: i32> {
 
 impl<'rt, const TAG: i32> PartialEq for RefValue<'rt, TAG> {
     fn eq(&self, other: &Self) -> bool {
-        self.rt.rt_ptr == other.rt.rt_ptr && self.ptr == other.ptr
+        self.rt.ptr == other.rt.ptr && self.ptr == other.ptr
     }
 }
 
