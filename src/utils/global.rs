@@ -33,7 +33,7 @@ impl<V> GlobalHolder<V> {
         }
     }
 
-    fn cleanup(&mut self) {
+    pub fn cleanup(&mut self) {
         self.records.retain(|v| {
             if v.detached.load(Ordering::Relaxed) {
                 (self.free)(v.runtime, &v.value);

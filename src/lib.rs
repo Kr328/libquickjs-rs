@@ -208,6 +208,20 @@ impl Runtime {
 
     pub fn execute_pending_jobs(&self) {
         unsafe {
+            match self.store() {
+                RuntimeStore::Running {
+                    global_contexts,
+                    global_refs,
+                    global_atoms,
+                    ..
+                } => {
+                    global_contexts.borrow_mut().cleanup();
+                    global_refs.borrow_mut().cleanup();
+                    global_atoms.borrow_mut().cleanup();
+                }
+                RuntimeStore::Destroying { .. } => {}
+            }
+
             let mut ctx = std::ptr::null_mut();
             while JS_ExecutePendingJob(self.ptr.as_ptr(), &mut ctx) != 0 {
                 let _ = ctx; // borrow only
