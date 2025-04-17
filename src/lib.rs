@@ -183,6 +183,20 @@ impl Runtime {
     }
 
     pub fn run_gc(&self) {
+        match self.store() {
+            RuntimeStore::Running {
+                global_contexts,
+                global_refs,
+                global_atoms,
+                ..
+            } => {
+                global_contexts.borrow_mut().cleanup();
+                global_refs.borrow_mut().cleanup();
+                global_atoms.borrow_mut().cleanup();
+            }
+            RuntimeStore::Destroying { .. } => {}
+        }
+
         unsafe { JS_RunGC(self.ptr.as_ptr()) }
     }
 
@@ -224,7 +238,7 @@ impl Runtime {
             };
 
             Ok(GlobalContext {
-                global: g.borrow_mut().new_global(self.as_raw(), unsafe {
+                global: g.borrow_mut().push(self.as_raw(), unsafe {
                     enforce_not_out_of_memory(JS_DupContext(ctx.ptr.as_ptr()))
                 }),
             })
@@ -233,20 +247,6 @@ impl Runtime {
 
     pub fn execute_pending_jobs(&self) {
         unsafe {
-            match self.store() {
-                RuntimeStore::Running {
-                    global_contexts,
-                    global_refs,
-                    global_atoms,
-                    ..
-                } => {
-                    global_contexts.borrow_mut().cleanup();
-                    global_refs.borrow_mut().cleanup();
-                    global_atoms.borrow_mut().cleanup();
-                }
-                RuntimeStore::Destroying { .. } => {}
-            }
-
             let mut ctx = std::ptr::null_mut();
             while JS_ExecutePendingJob(self.ptr.as_ptr(), &mut ctx) != 0 {
                 let _ = ctx; // borrow only
@@ -264,7 +264,7 @@ impl Runtime {
             };
 
             Ok(GlobalValue {
-                global: g.borrow_mut().new_global(self.as_raw(), unsafe {
+                global: g.borrow_mut().push(self.as_raw(), unsafe {
                     JS_DupValueRT(self.as_raw().as_ptr(), value.as_raw())
                 }),
             })
@@ -310,6 +310,8 @@ impl<'rt> Drop for Context<'rt> {
         self.rt.execute_pending_jobs();
 
         unsafe { JS_FreeContext(self.ptr.as_ptr()) }
+
+        self.rt.run_gc();
     }
 }
 
@@ -844,7 +846,7 @@ impl<'rt> Context<'rt> {
 
         let global = g
             .borrow_mut()
-            .new_global(self.rt.ptr, unsafe { JS_DupAtom(self.ptr.as_ptr(), atom.as_raw()) });
+            .push(self.rt.ptr, unsafe { JS_DupAtom(self.ptr.as_ptr(), atom.as_raw()) });
 
         GlobalAtom { global }
     }

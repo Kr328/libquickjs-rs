@@ -6,14 +6,15 @@ use std::{
     },
 };
 
-pub struct GlobalRecord<V> {
+struct Record<V> {
     runtime: NonNull<rquickjs_sys::JSRuntime>,
     detached: AtomicBool,
     value: V,
 }
 
 pub struct GlobalHolder<V> {
-    records: Vec<Arc<GlobalRecord<V>>>,
+    dirty: Arc<AtomicBool>,
+    records: Vec<Arc<Record<V>>>,
     free: fn(NonNull<rquickjs_sys::JSRuntime>, &V),
 }
 
@@ -28,27 +29,28 @@ impl<V> Drop for GlobalHolder<V> {
 impl<V> GlobalHolder<V> {
     pub fn new(free: fn(NonNull<rquickjs_sys::JSRuntime>, &V)) -> Self {
         Self {
+            dirty: Arc::new(AtomicBool::new(false)),
             records: Vec::new(),
             free,
         }
     }
 
     pub fn cleanup(&mut self) {
-        self.records.retain(|v| {
-            if v.detached.load(Ordering::Relaxed) {
-                (self.free)(v.runtime, &v.value);
+        if self.dirty.swap(false, Ordering::Relaxed) {
+            self.records.retain(|v| {
+                if v.detached.load(Ordering::Relaxed) {
+                    (self.free)(v.runtime, &v.value);
 
-                false
-            } else {
-                true
-            }
-        })
+                    false
+                } else {
+                    true
+                }
+            })
+        }
     }
 
-    pub fn new_global(&mut self, runtime: NonNull<rquickjs_sys::JSRuntime>, value: V) -> Global<V> {
-        self.cleanup();
-
-        let record = Arc::new(GlobalRecord {
+    pub fn push(&mut self, runtime: NonNull<rquickjs_sys::JSRuntime>, value: V) -> Global<V> {
+        let record = Arc::new(Record {
             runtime,
             detached: AtomicBool::new(false),
             value,
@@ -58,13 +60,17 @@ impl<V> GlobalHolder<V> {
 
         self.records.push(record);
 
-        Global { record: record_weak }
+        Global {
+            dirty: Arc::downgrade(&self.dirty),
+            record: record_weak,
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct Global<T> {
-    record: Weak<GlobalRecord<T>>,
+    dirty: Weak<AtomicBool>,
+    record: Weak<Record<T>>,
 }
 
 unsafe impl<T> Send for Global<T> {}
@@ -74,6 +80,9 @@ impl<T> Drop for Global<T> {
     fn drop(&mut self) {
         if let Some(r) = self.record.upgrade() {
             r.detached.store(true, Ordering::Relaxed);
+        }
+        if let Some(d) = self.dirty.upgrade() {
+            d.store(true, Ordering::Relaxed);
         }
     }
 }
