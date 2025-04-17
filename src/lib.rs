@@ -1240,7 +1240,7 @@ impl<'rt> Context<'rt> {
                 for i in 0..length {
                     let current = &(*ptr.offset(i as isize));
                     atoms.push(OwnAtom {
-                        atom: Atom::from_raw(self.rt, current.atom),
+                        atom: Atom::from_raw(self.rt, JS_DupAtom(self.ptr.as_ptr(), current.atom)),
                         is_enumerable: current.is_enumerable,
                     });
                 }
