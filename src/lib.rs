@@ -5,6 +5,7 @@ use std::{
     ffi::CString,
     fmt::{Debug, Display, Formatter},
     mem::ManuallyDrop,
+    num::NonZeroUsize,
     ops::Deref,
     ptr::NonNull,
 };
@@ -28,10 +29,11 @@ use rquickjs_sys::{
     JS_NewFloat64, JS_NewNumber, JS_NewObject, JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass,
     JS_NewPromiseCapability, JS_NewRuntime, JS_NewStringLen, JS_NewSymbol, JS_NewTypedArray, JS_NewUint8Array,
     JS_NewUint8ArrayCopy, JS_ParseJSON, JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject, JS_ResolveModule,
-    JS_RunGC, JS_SealObject, JS_SetClassProto, JS_SetConstructorBit, JS_SetLength, JS_SetOpaque, JS_SetProperty,
-    JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype, JS_SetRuntimeOpaque, JS_SetUncatchableError,
-    JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext,
-    JS_ToNumber, JS_ToObject, JS_ToObjectString, JS_ToPropertyKey, JS_ToString, JS_ValueToAtom, JS_WriteObject, js_free,
+    JS_RunGC, JS_SealObject, JS_SetClassProto, JS_SetConstructorBit, JS_SetLength, JS_SetMaxStackSize, JS_SetOpaque,
+    JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype, JS_SetRuntimeOpaque,
+    JS_SetUncatchableError, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex,
+    JS_ToInt32, JS_ToInt64Ext, JS_ToNumber, JS_ToObject, JS_ToObjectString, JS_ToPropertyKey, JS_ToString, JS_UpdateStackTop,
+    JS_ValueToAtom, JS_WriteObject, js_free,
 };
 
 use crate::utils::{
@@ -68,9 +70,16 @@ impl GlobalContext {
     pub fn to_local<'rt>(&self, rt: &'rt Runtime) -> Result<Context<'rt>, InvalidRuntime> {
         self.global
             .get(Some(rt.ptr))
-            .map(|ctx| Context {
-                rt,
-                ptr: unsafe { enforce_not_out_of_memory(JS_DupContext(ctx.as_ptr())) },
+            .map(|ctx| {
+                let ctx = Context {
+                    rt,
+                    ptr: unsafe { enforce_not_out_of_memory(JS_DupContext(ctx.as_ptr())) },
+                };
+
+                // current thread may change, update stack top
+                rt.update_stack_top();
+
+                ctx
             })
             .ok_or(InvalidRuntime)
     }
@@ -177,14 +186,30 @@ impl Runtime {
         unsafe { JS_RunGC(self.ptr.as_ptr()) }
     }
 
+    pub fn set_max_stack_size(&self, size: Option<NonZeroUsize>) {
+        unsafe {
+            JS_SetMaxStackSize(self.ptr.as_ptr(), size.map(|s| s.get() as _).unwrap_or(0));
+        }
+    }
+
+    pub fn update_stack_top(&self) {
+        unsafe {
+            JS_UpdateStackTop(self.ptr.as_ptr());
+        }
+    }
+
     pub fn new_context(&self) -> Context {
         let ctx_ptr = unsafe { enforce_not_out_of_memory(JS_NewContext(self.ptr.as_ptr())) };
+
+        self.update_stack_top();
 
         Context { rt: self, ptr: ctx_ptr }
     }
 
     pub fn new_plain_context(&self) -> Context {
         let ctx_ptr = unsafe { enforce_not_out_of_memory(JS_NewContextRaw(self.ptr.as_ptr())) };
+
+        self.update_stack_top();
 
         Context { rt: self, ptr: ctx_ptr }
     }
