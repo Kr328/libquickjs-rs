@@ -1783,7 +1783,7 @@ impl<'rt> Context<'rt> {
         })
     }
 
-    pub fn enqueue_job<F: FnOnce() + Send + 'static>(&self, f: F) -> Result<(), Value<'rt>> {
+    pub fn enqueue_job<F: for<'c, 'r> FnOnce(&'c Context<'r>) + Send + 'static>(&self, f: F) -> Result<(), Value<'rt>> {
         struct FnHolder<F> {
             f: Option<F>,
         }
@@ -1792,7 +1792,7 @@ impl<'rt> Context<'rt> {
             const NAME: &'static str = "NativeFnHolder";
         }
 
-        extern "C" fn call_job_fn<F: FnOnce() + Send + 'static>(
+        extern "C" fn call_job_fn<F: for<'c, 'r> FnOnce(&'c Context<'r>) + Send + 'static>(
             ctx: *mut rquickjs_sys::JSContext,
             argc: i32,
             argv: *mut rquickjs_sys::JSValue,
@@ -1814,7 +1814,7 @@ impl<'rt> Context<'rt> {
                 let fn_holder = &mut *(&raw const *fn_holder).cast_mut();
 
                 let f = fn_holder.f.take().unwrap();
-                f();
+                f(&ctx);
             }
 
             rquickjs_sys::JS_UNDEFINED

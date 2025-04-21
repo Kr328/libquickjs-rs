@@ -11,7 +11,7 @@ fn test_jobs() {
 
     for _ in 0..100 {
         let call_count = call_count.clone();
-        ctx.enqueue_job(move || {
+        ctx.enqueue_job(move |_| {
             call_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         })
         .unwrap();
