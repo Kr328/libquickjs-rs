@@ -69,7 +69,7 @@ pub struct GlobalContext {
 impl GlobalContext {
     pub fn to_local<'rt>(&self, rt: &'rt Runtime) -> Result<Context<'rt>, InvalidRuntime> {
         self.global
-            .get(Some(rt.ptr))
+            .get(rt.ptr)
             .map(|ctx| {
                 let ctx = Context {
                     rt,
@@ -93,7 +93,7 @@ pub struct GlobalValue {
 impl GlobalValue {
     pub fn to_local<'rt>(&self, rt: &'rt Runtime) -> Result<Value<'rt>, InvalidRuntime> {
         self.global
-            .get(Some(rt.ptr))
+            .get(rt.ptr)
             .map(|value| unsafe { Value::from_raw(rt, JS_DupValueRT(rt.as_raw().as_ptr(), value)).unwrap() })
             .ok_or(InvalidRuntime)
     }
@@ -107,7 +107,7 @@ pub struct GlobalAtom {
 impl GlobalAtom {
     pub fn to_local<'rt>(&self, ctx: &Context<'rt>) -> Result<Atom<'rt>, InvalidRuntime> {
         self.global
-            .get(Some(ctx.rt.ptr))
+            .get(ctx.rt.ptr)
             .map(|atom| unsafe { Atom::from_raw(ctx.rt, JS_DupAtom(ctx.ptr.as_ptr(), atom)) })
             .ok_or(InvalidRuntime)
     }
@@ -154,15 +154,15 @@ impl Drop for Runtime {
 
 impl Runtime {
     pub fn new() -> Self {
-        let store = RuntimeStore::Running {
-            class_ids: RefCell::new(HashMap::new()),
-            global_contexts: RefCell::new(GlobalHolder::new(|_, ctx| unsafe { JS_FreeContext(ctx.as_ptr()) })),
-            global_refs: RefCell::new(GlobalHolder::new(|rt, value| unsafe { JS_FreeValueRT(rt.as_ptr(), *value) })),
-            global_atoms: RefCell::new(GlobalHolder::new(|rt, value| unsafe { JS_FreeAtomRT(rt.as_ptr(), *value) })),
-        };
-
         unsafe {
             let ptr = enforce_not_out_of_memory(JS_NewRuntime());
+
+            let store = RuntimeStore::Running {
+                class_ids: RefCell::new(HashMap::new()),
+                global_contexts: RefCell::new(GlobalHolder::new(ptr, |_, ctx| JS_FreeContext(ctx.as_ptr()))),
+                global_refs: RefCell::new(GlobalHolder::new(ptr, |rt, value| JS_FreeValueRT(rt.as_ptr(), value))),
+                global_atoms: RefCell::new(GlobalHolder::new(ptr, |rt, value| JS_FreeAtomRT(rt.as_ptr(), value))),
+            };
 
             JS_SetRuntimeOpaque(ptr.as_ptr(), Box::into_raw(Box::new(store)) as *mut std::ffi::c_void);
 
@@ -238,9 +238,9 @@ impl Runtime {
             };
 
             Ok(GlobalContext {
-                global: g.borrow_mut().push(self.as_raw(), unsafe {
-                    enforce_not_out_of_memory(JS_DupContext(ctx.ptr.as_ptr()))
-                }),
+                global: g
+                    .borrow_mut()
+                    .push(unsafe { enforce_not_out_of_memory(JS_DupContext(ctx.ptr.as_ptr())) }),
             })
         }
     }
@@ -264,9 +264,9 @@ impl Runtime {
             };
 
             Ok(GlobalValue {
-                global: g.borrow_mut().push(self.as_raw(), unsafe {
-                    JS_DupValueRT(self.as_raw().as_ptr(), value.as_raw())
-                }),
+                global: g
+                    .borrow_mut()
+                    .push(unsafe { JS_DupValueRT(self.as_raw().as_ptr(), value.as_raw()) }),
             })
         }
     }
@@ -844,9 +844,7 @@ impl<'rt> Context<'rt> {
             RuntimeStore::Destroying { .. } => panic!("runtime destroying"),
         };
 
-        let global = g
-            .borrow_mut()
-            .push(self.rt.ptr, unsafe { JS_DupAtom(self.ptr.as_ptr(), atom.as_raw()) });
+        let global = g.borrow_mut().push(unsafe { JS_DupAtom(self.ptr.as_ptr(), atom.as_raw()) });
 
         GlobalAtom { global }
     }
@@ -900,7 +898,7 @@ impl<'rt> Context<'rt> {
                                 }
 
                                 fn mark_global_value(&self, value: &GlobalValue) {
-                                    if let Some(v) = value.global.get(None) {
+                                    if let Some(v) = value.global.get(self.rt) {
                                         unsafe { JS_MarkValue(self.rt.as_ptr(), v, self.mark_func) }
                                     }
                                 }

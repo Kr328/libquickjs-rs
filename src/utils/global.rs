@@ -6,97 +6,113 @@ use std::{
     },
 };
 
-struct Record<V> {
+struct Shared {
     runtime: NonNull<rquickjs_sys::JSRuntime>,
-    detached: AtomicBool,
-    value: V,
+    dirty: AtomicBool,
 }
 
-pub struct GlobalHolder<V> {
-    dirty: Arc<AtomicBool>,
-    records: Vec<Arc<Record<V>>>,
-    free: fn(NonNull<rquickjs_sys::JSRuntime>, &V),
+unsafe impl Send for Shared {}
+unsafe impl Sync for Shared {}
+
+struct Ref {
+    shared: Arc<Shared>,
 }
+
+impl Drop for Ref {
+    fn drop(&mut self) {
+        self.shared.dirty.store(true, Ordering::Relaxed);
+    }
+}
+
+struct Record<V> {
+    value: Option<V>,
+    refs: Weak<Ref>,
+}
+
+unsafe impl<V> Send for Record<V> {}
+unsafe impl<V> Sync for Record<V> {}
+
+pub struct GlobalHolder<V> {
+    free: fn(NonNull<rquickjs_sys::JSRuntime>, value: V),
+    shared: Arc<Shared>,
+    records: Vec<Record<V>>,
+}
+
+unsafe impl<V> Send for GlobalHolder<V> {}
+unsafe impl<V> Sync for GlobalHolder<V> {}
 
 impl<V> Drop for GlobalHolder<V> {
     fn drop(&mut self) {
         for record in std::mem::take(&mut self.records) {
-            (self.free)(record.runtime, &record.value);
+            if let Some(v) = record.value {
+                (self.free)(self.shared.runtime, v);
+            }
         }
     }
 }
 
 impl<V> GlobalHolder<V> {
-    pub fn new(free: fn(NonNull<rquickjs_sys::JSRuntime>, &V)) -> Self {
+    pub fn new(rt: NonNull<rquickjs_sys::JSRuntime>, free: fn(NonNull<rquickjs_sys::JSRuntime>, value: V)) -> Self {
         Self {
-            dirty: Arc::new(AtomicBool::new(false)),
-            records: Vec::new(),
             free,
+            shared: Arc::new(Shared {
+                runtime: rt,
+                dirty: AtomicBool::new(false),
+            }),
+            records: Vec::new(),
         }
     }
 
     pub fn cleanup(&mut self) {
-        if self.dirty.swap(false, Ordering::Relaxed) {
-            self.records.retain(|v| {
-                if v.detached.load(Ordering::Relaxed) {
-                    (self.free)(v.runtime, &v.value);
+        if self.shared.dirty.swap(false, Ordering::Relaxed) {
+            self.records.retain_mut(|v| {
+                if v.refs.strong_count() > 0 {
+                    true
+                } else {
+                    if let Some(v) = v.value.take() {
+                        (self.free)(self.shared.runtime, v);
+                    }
 
                     false
-                } else {
-                    true
                 }
             })
         }
     }
 
-    pub fn push(&mut self, runtime: NonNull<rquickjs_sys::JSRuntime>, value: V) -> Global<V> {
-        let record = Arc::new(Record {
-            runtime,
-            detached: AtomicBool::new(false),
-            value,
+    pub fn push(&mut self, value: V) -> Global<V>
+    where
+        V: Clone,
+    {
+        let reference = Arc::new(Ref {
+            shared: self.shared.clone(),
         });
 
-        let record_weak = Arc::downgrade(&record);
+        let record = Record {
+            value: Some(value.clone()),
+            refs: Arc::downgrade(&reference),
+        };
 
         self.records.push(record);
 
-        Global {
-            dirty: Arc::downgrade(&self.dirty),
-            record: record_weak,
-        }
+        Global { reference, value }
     }
 }
 
 #[derive(Clone)]
 pub struct Global<T> {
-    dirty: Weak<AtomicBool>,
-    record: Weak<Record<T>>,
+    reference: Arc<Ref>,
+    value: T,
 }
 
 unsafe impl<T> Send for Global<T> {}
 unsafe impl<T> Sync for Global<T> {}
 
-impl<T> Drop for Global<T> {
-    fn drop(&mut self) {
-        if let Some(r) = self.record.upgrade() {
-            r.detached.store(true, Ordering::Relaxed);
-        }
-        if let Some(d) = self.dirty.upgrade() {
-            d.store(true, Ordering::Relaxed);
-        }
-    }
-}
-
 impl<T: Clone> Global<T> {
-    pub fn get(&self, rt: Option<NonNull<rquickjs_sys::JSRuntime>>) -> Option<T> {
-        let record = self.record.upgrade()?;
-
-        if let Some(rt) = rt {
-            if record.runtime != rt {
-                return None;
-            }
+    pub fn get(&self, rt: NonNull<rquickjs_sys::JSRuntime>) -> Option<T> {
+        if self.reference.shared.runtime == rt {
+            Some(self.value.clone())
+        } else {
+            None
         }
-
-        Some(record.value.clone())
     }
 }
