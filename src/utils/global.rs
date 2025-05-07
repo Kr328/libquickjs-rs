@@ -1,8 +1,8 @@
 use std::{
     ptr::NonNull,
     sync::{
-        Arc, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, Ordering}, Arc,
+        Weak,
     },
 };
 
@@ -61,6 +61,11 @@ impl<V> GlobalHolder<V> {
             }),
             records: Vec::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.records.len()
     }
 
     pub fn cleanup(&mut self) {
