@@ -1,7 +1,10 @@
 [package]
 name = "libquickjs"
-version = "1.9.2"
+version = "1.10.0"
 edition = "2024"
+
+[features]
+custom-allocator = []
 
 [dependencies]
 bitflags = "2.6"

@@ -1,8 +1,8 @@
 use std::{
     ptr::NonNull,
     sync::{
-        atomic::{AtomicBool, Ordering}, Arc,
-        Weak,
+        Arc, Weak,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
