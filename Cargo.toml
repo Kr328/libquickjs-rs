@@ -1,13 +1,13 @@
 [package]
 name = "libquickjs"
-version = "1.10.0"
+version = "1.10.1"
 edition = "2024"
 
 [features]
 custom-allocator = []
 
 [dependencies]
-bitflags = "2.6"
+bitflags = "2.9"
 rquickjs-sys = "0.9"
 
 [dev-dependencies]
