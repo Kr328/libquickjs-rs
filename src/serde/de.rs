@@ -1,14 +1,14 @@
 use serde::{
-    Deserializer,
-    de::{
-        DeserializeOwned, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor,
-        value::SeqDeserializer,
-    },
+    Deserialize, Deserializer,
+    de::{DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor, value::SeqDeserializer},
 };
 
 use crate::{
     Atom, Context, GetOwnAtomFlags, OwnAtom, Value,
-    serde::{error::error_to_string, pool::AtomPool},
+    serde::{
+        error::{collect_path, error_to_string},
+        pool::AtomPool,
+    },
 };
 
 #[derive(Clone)]
@@ -40,7 +40,7 @@ impl<'a, 'rt> ValueDeserializer<'a, 'rt> {
     }
 }
 
-impl<'a, 'rt> IntoDeserializer<'rt, super::Error<'rt>> for ValueDeserializer<'a, 'rt> {
+impl<'a, 'rt> IntoDeserializer<'rt, super::Error> for ValueDeserializer<'a, 'rt> {
     type Deserializer = Self;
 
     fn into_deserializer(self) -> Self::Deserializer {
@@ -49,20 +49,17 @@ impl<'a, 'rt> IntoDeserializer<'rt, super::Error<'rt>> for ValueDeserializer<'a,
 }
 
 impl<'a, 'rt> ValueDeserializer<'a, 'rt> {
-    fn path(&self) -> Vec<Atom<'rt>> {
-        let mut path = self.key.iter().map(|atom| self.ctx.dup_atom(atom)).collect::<Vec<_>>();
-        let mut deserializer = self;
-        while let Some(parent) = deserializer.parent {
-            if let Some(key) = parent.key {
-                path.push(self.ctx.dup_atom(key));
-            }
-            deserializer = parent;
-        }
-        path.reverse();
-        path
+    fn path(&self) -> Vec<String> {
+        let mut holder = Some(self);
+
+        collect_path(
+            self.ctx,
+            |d| d.key,
+            std::iter::from_fn(move || holder.inspect(|h| holder = h.parent)),
+        )
     }
 
-    fn fix_path(&self, mut error: super::Error<'rt>) -> super::Error<'rt> {
+    fn fix_path(&self, mut error: super::Error) -> super::Error {
         if error.path.is_empty() {
             error.path = self.path();
         }
@@ -70,15 +67,15 @@ impl<'a, 'rt> ValueDeserializer<'a, 'rt> {
         error
     }
 
-    fn new_error(&self, repr: super::ErrorRepr) -> super::Error<'rt> {
+    fn new_error(&self, repr: super::ErrorRepr) -> super::Error {
         super::Error::new(self.path(), repr)
     }
 
-    fn value_to_error(&self, value: &Value) -> super::Error<'rt> {
+    fn value_to_error(&self, value: &Value) -> super::Error {
         self.new_error(super::ErrorRepr::EvalValue(error_to_string(self.ctx, &value)))
     }
 
-    fn deserialize_to_string<V: Visitor<'rt>>(&self, visitor: V) -> Result<V::Value, super::Error<'rt>> {
+    fn deserialize_to_string<V: Visitor<'rt>>(&self, visitor: V) -> Result<V::Value, super::Error> {
         let s = match self.value {
             Value::String(_) => self.value.clone(),
             _ => self.ctx.to_string(&self.value).map_err(|err| self.value_to_error(&err))?,
@@ -102,7 +99,7 @@ impl<'a, 'rt> ValueDeserializer<'a, 'rt> {
 }
 
 impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -303,7 +300,7 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
             }
 
             impl<'a, 'rt> SeqAccess<'rt> for ArrayAccess<'a, 'rt> {
-                type Error = super::Error<'rt>;
+                type Error = super::Error;
 
                 fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
                 where
@@ -351,7 +348,7 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
             }
 
             impl<'a, 'rt> SeqAccess<'rt> for ObjectAsSeqAccess<'a, 'rt> {
-                type Error = super::Error<'rt>;
+                type Error = super::Error;
 
                 fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
                 where
@@ -424,7 +421,7 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
         }
 
         impl<'a, 'rt> MapAccess<'rt> for ObjectAsMapAccess<'a, 'rt> {
-            type Error = super::Error<'rt>;
+            type Error = super::Error;
 
             fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
             where
@@ -517,7 +514,7 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
         }
 
         impl<'a, 'rt> VariantAccess<'rt> for ObjectAsEnumAccess<'a, 'rt> {
-            type Error = super::Error<'rt>;
+            type Error = super::Error;
 
             fn unit_variant(self) -> Result<(), Self::Error> {
                 Ok(())
@@ -546,7 +543,7 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
         }
 
         impl<'a, 'rt> EnumAccess<'rt> for ObjectAsEnumAccess<'a, 'rt> {
-            type Error = super::Error<'rt>;
+            type Error = super::Error;
             type Variant = Self;
 
             fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
@@ -605,8 +602,20 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
     }
 }
 
-pub fn from_value<'rt, D: DeserializeOwned>(ctx: &Context<'rt>, value: &Value<'rt>) -> Result<D, super::Error<'rt>> {
+pub fn from_value<'rt, D: Deserialize<'rt>>(ctx: &Context<'rt>, value: &Value<'rt>) -> Result<D, super::Error> {
     let pool = AtomPool::new();
     let deserializer = ValueDeserializer::new(ctx, value, &pool);
     D::deserialize(deserializer)
+}
+
+pub fn from_values<'rt, D: Deserialize<'rt>>(ctx: &Context<'rt>, values: &[Value<'rt>]) -> Result<Vec<D>, super::Error> {
+    let pool = AtomPool::new();
+    let ret = values
+        .iter()
+        .map(|value| {
+            let deserializer = ValueDeserializer::new(ctx, value, &pool);
+            D::deserialize(deserializer)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ret)
 }

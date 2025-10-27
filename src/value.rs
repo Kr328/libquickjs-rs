@@ -130,6 +130,12 @@ impl<'rt> Value<'rt> {
     }
 }
 
+impl<'rt> Default for Value<'rt> {
+    fn default() -> Self {
+        Self::Undefined
+    }
+}
+
 impl<'rt> From<BigInt<'rt>> for Value<'rt> {
     fn from(value: BigInt<'rt>) -> Self {
         Self::BigInt(value)

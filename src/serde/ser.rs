@@ -7,7 +7,7 @@ use serde::{
 };
 
 use super::{error::error_to_string, pool::AtomPool};
-use crate::{Atom, Context, Value};
+use crate::{Atom, Context, Value, serde::error::collect_path};
 
 #[derive(Clone)]
 pub struct ValueSerializer<'a, 'rt> {
@@ -33,24 +33,21 @@ impl<'a, 'rt> ValueSerializer<'a, 'rt> {
 }
 
 impl<'a, 'rt> ValueSerializer<'a, 'rt> {
-    fn path(&self) -> Vec<Atom<'rt>> {
-        let mut path = self.key.iter().map(|atom| self.ctx.dup_atom(atom)).collect::<Vec<_>>();
-        let mut deserializer = self;
-        while let Some(parent) = deserializer.parent {
-            if let Some(key) = parent.key {
-                path.push(self.ctx.dup_atom(key));
-            }
-            deserializer = parent;
-        }
-        path.reverse();
-        path
+    fn path(&self) -> Vec<String> {
+        let mut holder = Some(self);
+
+        collect_path(
+            self.ctx,
+            |d| d.key,
+            std::iter::from_fn(move || holder.inspect(|h| holder = h.parent)),
+        )
     }
 
-    fn new_error(&self, repr: super::ErrorRepr) -> super::Error<'rt> {
+    fn new_error(&self, repr: super::ErrorRepr) -> super::Error {
         super::Error::new(self.path(), repr)
     }
 
-    fn value_to_error(&self, value: &Value) -> super::Error<'rt> {
+    fn value_to_error(&self, value: &Value) -> super::Error {
         self.new_error(super::ErrorRepr::EvalValue(error_to_string(self.ctx, &value)))
     }
 
@@ -66,7 +63,7 @@ impl<'a, 'rt> ValueSerializer<'a, 'rt> {
 
 impl<'a, 'rt> Serializer for ValueSerializer<'a, 'rt> {
     type Ok = Value<'rt>;
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
     type SerializeSeq = ArrayValueSerializer<'a, 'rt>;
     type SerializeTuple = ArrayValueSerializer<'a, 'rt>;
     type SerializeTupleStruct = ArrayValueSerializer<'a, 'rt>;
@@ -239,7 +236,7 @@ pub struct ArrayValueSerializer<'a, 'rt> {
 
 impl<'a, 'rt> SerializeSeq for ArrayValueSerializer<'a, 'rt> {
     type Ok = Value<'rt>;
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -268,7 +265,7 @@ impl<'a, 'rt> SerializeSeq for ArrayValueSerializer<'a, 'rt> {
 
 impl<'a, 'rt> SerializeTuple for ArrayValueSerializer<'a, 'rt> {
     type Ok = Value<'rt>;
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
 
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -284,7 +281,7 @@ impl<'a, 'rt> SerializeTuple for ArrayValueSerializer<'a, 'rt> {
 
 impl<'a, 'rt> SerializeTupleStruct for ArrayValueSerializer<'a, 'rt> {
     type Ok = Value<'rt>;
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -300,7 +297,7 @@ impl<'a, 'rt> SerializeTupleStruct for ArrayValueSerializer<'a, 'rt> {
 
 impl<'a, 'rt> SerializeTupleVariant for ArrayValueSerializer<'a, 'rt> {
     type Ok = Value<'rt>;
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
 
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
@@ -324,7 +321,7 @@ pub struct ObjectValueSerializer<'a, 'rt> {
 
 impl<'a, 'rt> SerializeMap for ObjectValueSerializer<'a, 'rt> {
     type Ok = Value<'rt>;
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
 
     fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
     where
@@ -360,7 +357,7 @@ impl<'a, 'rt> SerializeMap for ObjectValueSerializer<'a, 'rt> {
 
 impl<'a, 'rt> SerializeStruct for ObjectValueSerializer<'a, 'rt> {
     type Ok = Value<'rt>;
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
@@ -383,7 +380,7 @@ impl<'a, 'rt> SerializeStruct for ObjectValueSerializer<'a, 'rt> {
 
 impl<'a, 'rt> SerializeStructVariant for ObjectValueSerializer<'a, 'rt> {
     type Ok = Value<'rt>;
-    type Error = super::Error<'rt>;
+    type Error = super::Error;
 
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
@@ -397,8 +394,20 @@ impl<'a, 'rt> SerializeStructVariant for ObjectValueSerializer<'a, 'rt> {
     }
 }
 
-pub fn to_value<'rt, S: Serialize>(ctx: &Context<'rt>, value: S) -> Result<Value<'rt>, super::Error<'rt>> {
+pub fn to_value<'rt, S: Serialize>(ctx: &Context<'rt>, value: S) -> Result<Value<'rt>, super::Error> {
     let pool = AtomPool::new();
     let serializer = ValueSerializer::new(ctx, &pool);
     value.serialize(serializer)
+}
+
+pub fn to_values<'rt, S: Serialize>(ctx: &Context<'rt>, values: &[S]) -> Result<Vec<Value<'rt>>, super::Error> {
+    let pool = AtomPool::new();
+    let ret = values
+        .iter()
+        .map(|value| {
+            let serializer = ValueSerializer::new(ctx, &pool);
+            value.serialize(serializer)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ret)
 }

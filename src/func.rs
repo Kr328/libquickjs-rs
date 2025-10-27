@@ -1,9 +1,11 @@
 use crate::{
-    Context,
+    Atom, Context,
     class::{CallOptions, Class},
     value::Value,
 };
 
+#[derive(Clone)]
+#[repr(transparent)]
 pub struct NativeFunction<F>
 where
     F: for<'rt> Fn(&Context<'rt>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'rt>, Value<'rt>> + Send + 'static,
@@ -15,7 +17,7 @@ impl<F> NativeFunction<F>
 where
     F: for<'rt> Fn(&Context<'rt>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'rt>, Value<'rt>> + Send + 'static,
 {
-    pub fn new(func: F) -> Self {
+    pub const fn new(func: F) -> Self {
         Self { func }
     }
 }
@@ -35,5 +37,21 @@ where
         options: CallOptions,
     ) -> Result<Value<'rt>, Value<'rt>> {
         (self.func)(ctx, func, this, args, options)
+    }
+}
+
+pub trait NativeFunctionExt<'rt> {
+    fn set_native_function<F>(self, obj: &Value, atom: &Atom, func: F) -> Result<(), Value<'rt>>
+    where
+        F: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static;
+}
+
+impl<'rt> NativeFunctionExt<'rt> for Context<'rt> {
+    fn set_native_function<F>(self, obj: &Value, atom: &Atom, func: F) -> Result<(), Value<'rt>>
+    where
+        F: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
+    {
+        let func = NativeFunction::new(func);
+        self.set_property(obj, atom, self.new_object_class(func, None)?)
     }
 }

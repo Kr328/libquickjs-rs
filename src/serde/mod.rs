@@ -10,8 +10,11 @@ use std::{
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-pub use self::{de::from_value, ser::to_value};
-use crate::{Atom, GlobalValue, Value};
+pub use self::{
+    de::{ValueDeserializer, from_value, from_values},
+    ser::{ArrayValueSerializer, ObjectValueSerializer, ValueSerializer, to_value, to_values},
+};
+use crate::{GlobalValue, Value};
 
 #[derive(Debug)]
 pub enum ErrorRepr {
@@ -24,17 +27,17 @@ pub enum ErrorRepr {
     ExpectingArray,
 }
 
-pub struct Error<'rt> {
-    path: Vec<Atom<'rt>>,
+pub struct Error {
+    path: Vec<String>,
     repr: ErrorRepr,
 }
 
-impl<'rt> Error<'rt> {
-    pub fn new(path: Vec<Atom<'rt>>, repr: ErrorRepr) -> Self {
+impl Error {
+    pub fn new(path: Vec<String>, repr: ErrorRepr) -> Self {
         Self { path, repr }
     }
 
-    pub fn object_path(&self) -> &[Atom<'rt>] {
+    pub fn object_path(&self) -> &[String] {
         &self.path
     }
 
@@ -43,22 +46,15 @@ impl<'rt> Error<'rt> {
     }
 }
 
-impl<'rt> Debug for Error<'rt> {
+impl Debug for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         struct PathDebug<'rt> {
-            path: &'rt [Atom<'rt>],
+            path: &'rt [String],
         }
 
         impl<'rt> Debug for PathDebug<'rt> {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-                f.debug_list()
-                    .entries(self.path.iter().map(|v| {
-                        let ctx = v.get_runtime().new_context();
-                        ctx.atom_to_string(v)
-                            .and_then(|s| Ok(ctx.get_string(&s)?.to_string()))
-                            .unwrap_or_else(|_| "<unknown>".to_string())
-                    }))
-                    .finish()
+                f.debug_list().entries(self.path.iter()).finish()
             }
         }
 
@@ -69,23 +65,13 @@ impl<'rt> Debug for Error<'rt> {
     }
 }
 
-impl<'rt> Display for Error<'rt> {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut path = String::new();
-        path.push_str(".");
-        for (i, v) in self.path.iter().enumerate() {
-            if i > 0 {
-                path.push('.');
-            }
 
-            let ctx = v.get_runtime().new_context();
-            match ctx.atom_to_string(v) {
-                Ok(v) => match ctx.get_string(&v) {
-                    Ok(s) => path.push_str(&s.to_string()),
-                    Err(_) => path.push_str("<unknown>"),
-                },
-                Err(_) => path.push_str("<unknown>"),
-            }
+        for v in self.path.iter() {
+            path.push('.');
+            path.push_str(v);
         }
 
         match &self.repr {
@@ -100,13 +86,13 @@ impl<'rt> Display for Error<'rt> {
     }
 }
 
-impl<'rt> std::error::Error for Error<'rt> {
+impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }
 }
 
-impl<'rt> serde::de::Error for Error<'rt> {
+impl serde::de::Error for Error {
     fn custom<T: Display>(msg: T) -> Self {
         Self {
             path: Vec::new(),
@@ -115,7 +101,7 @@ impl<'rt> serde::de::Error for Error<'rt> {
     }
 }
 
-impl<'rt> serde::ser::Error for Error<'rt> {
+impl serde::ser::Error for Error {
     fn custom<T: Display>(msg: T) -> Self {
         Self::new(Vec::new(), ErrorRepr::Custom(msg.to_string()))
     }
@@ -131,11 +117,11 @@ impl<'rt> Deserialize<'rt> for GlobalValue {
     where
         D: Deserializer<'rt>,
     {
-        if type_id_of::<D> as *const () == type_id_of::<de::ValueDeserializer<'_, 'rt>> as *const () {
+        if type_id_of::<D>() == type_id_of::<ValueDeserializer<'_, 'rt>>() {
             unsafe {
-                assert_eq!(size_of::<de::ValueDeserializer<'_, 'rt>>(), size_of::<D>());
+                assert_eq!(size_of::<ValueDeserializer<'_, 'rt>>(), size_of::<D>());
 
-                let de = &*(&raw const deserializer as *const de::ValueDeserializer<'_, 'rt>);
+                let de = &*(&raw const deserializer as *const ValueDeserializer<'_, 'rt>);
 
                 Ok(de.context().runtime().new_global_value(de.value()).expect("new global value"))
             }
@@ -150,11 +136,11 @@ impl<'rt> Serialize for GlobalValue {
     where
         S: Serializer,
     {
-        if type_id_of::<S>() == type_id_of::<ser::ValueSerializer<'_, 'rt>>() {
+        if type_id_of::<S>() == type_id_of::<ValueSerializer<'_, 'rt>>() {
             unsafe {
-                assert_eq!(size_of::<ser::ValueSerializer<'_, 'rt>>(), size_of::<S>());
+                assert_eq!(size_of::<ValueSerializer<'_, 'rt>>(), size_of::<S>());
 
-                let ser = &*(&raw const serializer as *const ser::ValueSerializer<'_, 'rt>);
+                let ser = &*(&raw const serializer as *const ValueSerializer<'_, 'rt>);
                 let value = ManuallyDrop::new(self.to_local(ser.context().runtime()).expect("to local"));
 
                 Ok(std::mem::transmute_copy::<Value<'rt>, S::Ok>(&value))

@@ -1,6 +1,7 @@
 mod atom;
 mod class;
 mod func;
+mod prop;
 #[cfg(feature = "serde")]
 pub mod serde;
 #[cfg(test)]
@@ -52,7 +53,7 @@ use crate::utils::{
     ptr::enforce_not_out_of_memory,
     vec::MaybeTinyVec,
 };
-pub use crate::{atom::*, class::*, func::*, value::*};
+pub use crate::{atom::*, class::*, func::*, prop::*, value::*};
 
 #[derive(Debug, Copy, Clone)]
 pub struct InvalidRuntime;
