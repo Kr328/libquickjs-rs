@@ -1,5 +1,5 @@
 use crate::{
-    Atom, Context,
+    Context,
     class::{CallOptions, Class},
     value::Value,
 };
