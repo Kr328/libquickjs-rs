@@ -1,4 +1,4 @@
-use crate::{Atom, CallOptions, Context, NativeFunction, PropertyDescriptorFlags, Value};
+use crate::{CallOptions, Context, NativeFunction, PropertyDescriptorFlags, Value};
 
 #[derive(Default, Clone)]
 pub struct NativeProperty<
@@ -19,7 +19,7 @@ pub trait NativePropertyExt<'rt>: Sized {
     fn define_native_property<'a, G, S>(
         self,
         obj: &Value,
-        atom: &Atom,
+        name: &str,
         prop: NativeProperty<'a, G, S>,
     ) -> Result<bool, Value<'rt>>
     where
@@ -28,16 +28,12 @@ pub trait NativePropertyExt<'rt>: Sized {
 }
 
 impl<'rt> NativePropertyExt<'rt> for Context<'rt> {
-    fn define_native_property<'a, G, S>(
-        self,
-        obj: &Value,
-        atom: &Atom,
-        prop: NativeProperty<'a, G, S>,
-    ) -> Result<bool, Value<'rt>>
+    fn define_native_property<'a, G, S>(self, obj: &Value, name: &str, prop: NativeProperty<'a, G, S>) -> Result<bool, Value<'rt>>
     where
         G: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
         S: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
     {
+        let atom = self.new_atom(name)?;
         let getter = match prop.getter {
             Some(getter) => self.new_object_class(getter, None)?,
             None => Value::Undefined,
@@ -47,6 +43,6 @@ impl<'rt> NativePropertyExt<'rt> for Context<'rt> {
             None => Value::Undefined,
         };
 
-        self.define_property(obj, atom, &prop.value, &getter, &setter, prop.flags)
+        self.define_property(obj, &atom, &prop.value, &getter, &setter, prop.flags)
     }
 }

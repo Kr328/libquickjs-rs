@@ -41,17 +41,17 @@ where
 }
 
 pub trait NativeFunctionExt<'rt> {
-    fn set_native_function<F>(self, obj: &Value, atom: &Atom, func: F) -> Result<(), Value<'rt>>
+    fn set_native_function<F>(self, obj: &Value, name: &str, func: F) -> Result<bool, Value<'rt>>
     where
         F: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static;
 }
 
 impl<'rt> NativeFunctionExt<'rt> for Context<'rt> {
-    fn set_native_function<F>(self, obj: &Value, atom: &Atom, func: F) -> Result<(), Value<'rt>>
+    fn set_native_function<F>(self, obj: &Value, name: &str, func: F) -> Result<bool, Value<'rt>>
     where
         F: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
     {
         let func = NativeFunction::new(func);
-        self.set_property(obj, atom, self.new_object_class(func, None)?)
+        self.define_property_value_str(obj, &name, self.new_object_class(func, None)?, Default::default())
     }
 }
