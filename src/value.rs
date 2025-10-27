@@ -6,8 +6,8 @@ use std::{
 use rquickjs_sys::{
     JS_EXCEPTION, JS_FreeCString, JS_MKPTR, JS_MKVAL, JS_NULL, JS_NewFloat64, JS_TAG_BIG_INT, JS_TAG_BOOL, JS_TAG_CATCH_OFFSET,
     JS_TAG_EXCEPTION, JS_TAG_FLOAT64, JS_TAG_FUNCTION_BYTECODE, JS_TAG_INT, JS_TAG_MODULE, JS_TAG_NULL, JS_TAG_OBJECT,
-    JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_TAG_UNINITIALIZED, JS_ToCStringLen, JS_UNDEFINED, JS_UNINITIALIZED,
-    JS_VALUE_IS_NAN, JSValue, JSValueUnion,
+    JS_TAG_SHORT_BIG_INT, JS_TAG_STRING, JS_TAG_SYMBOL, JS_TAG_UNDEFINED, JS_TAG_UNINITIALIZED, JS_ToCStringLen, JS_UNDEFINED,
+    JS_UNINITIALIZED, JS_VALUE_IS_NAN, JSValue, JSValueUnion,
 };
 
 use crate::Runtime;
@@ -117,6 +117,7 @@ pub enum Value<'rt> {
     Undefined,
     Uninitialized,
     CatchOffset(i32),
+    ShortBigInt(i32),
     Float64(f64),
 }
 
@@ -215,6 +216,7 @@ impl<'rt> Value<'rt> {
                 JS_TAG_UNDEFINED => Self::Undefined,
                 JS_TAG_UNINITIALIZED => Self::Uninitialized,
                 JS_TAG_CATCH_OFFSET => Self::CatchOffset(value.u.int32),
+                JS_TAG_SHORT_BIG_INT => Self::ShortBigInt(value.u.int32),
                 JS_TAG_FLOAT64 => Self::Float64(value.u.float64),
                 JS_TAG_EXCEPTION => return Err(Exception),
                 tag => panic!("unknown tag {}", tag),
@@ -236,6 +238,7 @@ impl<'rt> Value<'rt> {
             Value::Undefined => JS_UNDEFINED,
             Value::Uninitialized => JS_UNINITIALIZED,
             Value::CatchOffset(offset) => JS_MKVAL(JS_TAG_CATCH_OFFSET, *offset),
+            Value::ShortBigInt(v) => JS_MKVAL(JS_TAG_SHORT_BIG_INT, *v),
             Value::Float64(f) => JS_NewFloat64(*f),
         }
     }
@@ -262,6 +265,7 @@ impl<'rt> Value<'rt> {
             Value::Undefined => JS_UNDEFINED,
             Value::Uninitialized => JS_UNINITIALIZED,
             Value::CatchOffset(offset) => JS_MKVAL(JS_TAG_CATCH_OFFSET, offset),
+            Value::ShortBigInt(v) => JS_MKVAL(JS_TAG_SHORT_BIG_INT, v),
             Value::Float64(f) => JS_NewFloat64(f),
         }
     }

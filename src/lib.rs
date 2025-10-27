@@ -1,8 +1,18 @@
+mod atom;
+mod class;
+mod func;
+#[cfg(feature = "serde")]
+pub mod serde;
+#[cfg(test)]
+mod tests;
+mod utils;
+mod value;
+
 use std::{
     any::TypeId,
     cell::RefCell,
     collections::{HashMap, hash_map::Entry},
-    ffi::CString,
+    ffi::{CStr, CString},
     fmt::{Debug, Display, Formatter},
     mem::ManuallyDrop,
     num::NonZeroUsize,
@@ -12,28 +22,28 @@ use std::{
 
 use bitflags::bitflags;
 use rquickjs_sys::{
-    JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBigInt, JS_AddIntrinsicDate, JS_AddIntrinsicEval, JS_AddIntrinsicJSON,
-    JS_AddIntrinsicMapSet, JS_AddIntrinsicPromise, JS_AddIntrinsicProxy, JS_AddIntrinsicRegExp, JS_AddIntrinsicRegExpCompiler,
-    JS_AddIntrinsicTypedArrays, JS_AtomToString, JS_AtomToValue, JS_Call, JS_CallConstructor2, JS_ClearUncatchableError,
-    JS_DefineProperty, JS_DefinePropertyGetSet, JS_DefinePropertyValue, JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32,
-    JS_DeleteProperty, JS_DetachArrayBuffer, JS_DetectModule, JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_EnqueueJob, JS_Eval,
-    JS_EvalFunction, JS_EvalThis, JS_ExecutePendingJob, JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum,
-    JS_FreeRuntime, JS_FreeValueRT, JS_FreezeObject, JS_GetArrayBuffer, JS_GetClassID, JS_GetClassProto, JS_GetException,
-    JS_GetFunctionProto, JS_GetGlobalObject, JS_GetLength, JS_GetOpaque, JS_GetOwnProperty, JS_GetOwnPropertyNames,
-    JS_GetProperty, JS_GetPropertyStr, JS_GetPropertyUint32, JS_GetPrototype, JS_GetRuntime, JS_GetRuntimeOpaque,
-    JS_GetTypedArrayBuffer, JS_GetTypedArrayType, JS_GetUint8Array, JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsArrayBuffer,
-    JS_IsConstructor, JS_IsDate, JS_IsEqual, JS_IsError, JS_IsExtensible, JS_IsFunction, JS_IsInstanceOf, JS_IsMap, JS_IsPromise,
-    JS_IsRegExp, JS_IsRegisteredClass, JS_IsSameValue, JS_IsSameValueZero, JS_IsStrictEqual, JS_IsUncatchableError,
-    JS_JSONStringify, JS_MarkValue, JS_NewArray, JS_NewArrayBuffer, JS_NewArrayBufferCopy, JS_NewAtomLen, JS_NewAtomUInt32,
-    JS_NewBigInt64, JS_NewBigUint64, JS_NewClass, JS_NewClassID, JS_NewContext, JS_NewContextRaw, JS_NewDate, JS_NewError,
-    JS_NewFloat64, JS_NewNumber, JS_NewObject, JS_NewObjectClass, JS_NewObjectProto, JS_NewObjectProtoClass,
-    JS_NewPromiseCapability, JS_NewStringLen, JS_NewSymbol, JS_NewTypedArray, JS_NewUint8Array, JS_NewUint8ArrayCopy,
-    JS_ParseJSON, JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject, JS_ResolveModule, JS_RunGC,
-    JS_SealObject, JS_SetClassProto, JS_SetConstructorBit, JS_SetLength, JS_SetMaxStackSize, JS_SetOpaque, JS_SetProperty,
-    JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype, JS_SetRuntimeOpaque, JS_SetUncatchableError,
-    JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2, JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext,
-    JS_ToNumber, JS_ToObject, JS_ToObjectString, JS_ToPropertyKey, JS_ToString, JS_UpdateStackTop, JS_ValueToAtom,
-    JS_WriteObject, js_free,
+    JS_AddIntrinsicBaseObjects, JS_AddIntrinsicBigInt, JS_AddIntrinsicDOMException, JS_AddIntrinsicDate, JS_AddIntrinsicEval,
+    JS_AddIntrinsicJSON, JS_AddIntrinsicMapSet, JS_AddIntrinsicPromise, JS_AddIntrinsicProxy, JS_AddIntrinsicRegExp,
+    JS_AddIntrinsicRegExpCompiler, JS_AddIntrinsicTypedArrays, JS_AddIntrinsicWeakRef, JS_AtomToString, JS_AtomToValue, JS_Call,
+    JS_CallConstructor2, JS_ClearUncatchableError, JS_DefineProperty, JS_DefinePropertyGetSet, JS_DefinePropertyValue,
+    JS_DefinePropertyValueStr, JS_DefinePropertyValueUint32, JS_DeleteProperty, JS_DetachArrayBuffer, JS_DetectModule,
+    JS_DupAtom, JS_DupContext, JS_DupValueRT, JS_EnqueueJob, JS_Eval, JS_EvalFunction, JS_EvalThis, JS_ExecutePendingJob,
+    JS_FreeAtomRT, JS_FreeCString, JS_FreeContext, JS_FreePropertyEnum, JS_FreeRuntime, JS_FreeValueRT, JS_FreezeObject,
+    JS_GetArrayBuffer, JS_GetClassID, JS_GetClassProto, JS_GetException, JS_GetFunctionProto, JS_GetGlobalObject, JS_GetLength,
+    JS_GetOpaque, JS_GetOwnProperty, JS_GetOwnPropertyNames, JS_GetProperty, JS_GetPropertyStr, JS_GetPropertyUint32,
+    JS_GetPrototype, JS_GetRuntime, JS_GetRuntimeOpaque, JS_GetTypedArrayBuffer, JS_GetTypedArrayType, JS_GetUint8Array,
+    JS_HasProperty, JS_Invoke, JS_IsArray, JS_IsArrayBuffer, JS_IsConstructor, JS_IsDate, JS_IsEqual, JS_IsError,
+    JS_IsExtensible, JS_IsFunction, JS_IsInstanceOf, JS_IsMap, JS_IsPromise, JS_IsRegExp, JS_IsRegisteredClass, JS_IsSameValue,
+    JS_IsSameValueZero, JS_IsStrictEqual, JS_IsUncatchableError, JS_JSONStringify, JS_MarkValue, JS_NewArray, JS_NewArrayBuffer,
+    JS_NewArrayBufferCopy, JS_NewAtomLen, JS_NewAtomUInt32, JS_NewBigInt64, JS_NewBigUint64, JS_NewClass, JS_NewClassID,
+    JS_NewContext, JS_NewContextRaw, JS_NewDate, JS_NewError, JS_NewFloat64, JS_NewNumber, JS_NewObject, JS_NewObjectClass,
+    JS_NewObjectProto, JS_NewObjectProtoClass, JS_NewPromiseCapability, JS_NewStringLen, JS_NewSymbol, JS_NewTypedArray,
+    JS_NewUint8Array, JS_NewUint8ArrayCopy, JS_ParseJSON, JS_PreventExtensions, JS_PromiseResult, JS_PromiseState, JS_ReadObject,
+    JS_ResolveModule, JS_RunGC, JS_SealObject, JS_SetClassProto, JS_SetConstructorBit, JS_SetLength, JS_SetMaxStackSize,
+    JS_SetOpaque, JS_SetProperty, JS_SetPropertyInt64, JS_SetPropertyStr, JS_SetPropertyUint32, JS_SetPrototype,
+    JS_SetRuntimeOpaque, JS_SetUncatchableError, JS_Throw, JS_ThrowTypeError, JS_ToBigInt64, JS_ToBool, JS_ToCStringLen2,
+    JS_ToFloat64, JS_ToIndex, JS_ToInt32, JS_ToInt64Ext, JS_ToNumber, JS_ToObject, JS_ToObjectString, JS_ToPropertyKey,
+    JS_ToString, JS_UpdateStackTop, JS_ValueToAtom, JS_WriteObject, js_free,
 };
 
 use crate::utils::{
@@ -43,16 +53,6 @@ use crate::utils::{
     vec::MaybeTinyVec,
 };
 pub use crate::{atom::*, class::*, func::*, value::*};
-
-#[cfg(feature = "custom-allocator")]
-mod alloc;
-mod atom;
-mod class;
-mod func;
-#[cfg(test)]
-mod tests;
-mod utils;
-mod value;
 
 #[derive(Debug, Copy, Clone)]
 pub struct InvalidRuntime;
@@ -157,51 +157,13 @@ impl Drop for Runtime {
 }
 
 impl Runtime {
+    pub fn version() -> &'static str {
+        unsafe { CStr::from_ptr(rquickjs_sys::JS_GetVersion()).to_str().unwrap() }
+    }
+
     pub fn new() -> Self {
         unsafe {
-            #[cfg(not(feature = "custom-allocator"))]
             let ptr = enforce_not_out_of_memory(rquickjs_sys::JS_NewRuntime());
-
-            #[cfg(feature = "custom-allocator")]
-            let ptr = {
-                extern "C" fn calloc(
-                    _: *mut std::ffi::c_void,
-                    size: rquickjs_sys::size_t,
-                    count: rquickjs_sys::size_t,
-                ) -> *mut std::ffi::c_void {
-                    unsafe { alloc::qjs_custom_calloc(size as _, count as _) as _ }
-                }
-
-                extern "C" fn malloc(_: *mut std::ffi::c_void, size: rquickjs_sys::size_t) -> *mut std::ffi::c_void {
-                    unsafe { alloc::qjs_custom_malloc(size as _) as _ }
-                }
-
-                extern "C" fn free(_: *mut std::ffi::c_void, ptr: *mut std::ffi::c_void) {
-                    unsafe { alloc::qjs_custom_free(ptr as _) }
-                }
-
-                extern "C" fn realloc(
-                    _: *mut std::ffi::c_void,
-                    ptr: *mut std::ffi::c_void,
-                    size: rquickjs_sys::size_t,
-                ) -> *mut std::ffi::c_void {
-                    unsafe { alloc::qjs_custom_realloc(ptr as _, size as _) as _ }
-                }
-
-                extern "C" fn malloc_usable_size(ptr: *const std::ffi::c_void) -> rquickjs_sys::size_t {
-                    unsafe { alloc::qjs_custom_malloc_usable_size(ptr as _) as _ }
-                }
-
-                let funcs = rquickjs_sys::JSMallocFunctions {
-                    js_calloc: Some(calloc),
-                    js_malloc: Some(malloc),
-                    js_free: Some(free),
-                    js_realloc: Some(realloc),
-                    js_malloc_usable_size: Some(malloc_usable_size),
-                };
-
-                enforce_not_out_of_memory(rquickjs_sys::JS_NewRuntime2(&funcs, std::ptr::null_mut()))
-            };
 
             let store = RuntimeStore::Running {
                 class_ids: RefCell::new(HashMap::new()),
@@ -258,7 +220,7 @@ impl Runtime {
         }
     }
 
-    pub fn new_context(&self) -> Context {
+    pub fn new_context(&self) -> Context<'_> {
         let ctx_ptr = unsafe { enforce_not_out_of_memory(JS_NewContext(self.ptr.as_ptr())) };
 
         self.update_stack_top();
@@ -266,7 +228,7 @@ impl Runtime {
         Context { rt: self, ptr: ctx_ptr }
     }
 
-    pub fn new_plain_context(&self) -> Context {
+    pub fn new_plain_context(&self) -> Context<'_> {
         let ctx_ptr = unsafe { enforce_not_out_of_memory(JS_NewContextRaw(self.ptr.as_ptr())) };
 
         self.update_stack_top();
@@ -385,6 +347,8 @@ bitflags! {
         const TypedArrays = 1 << 9;
         const Promise = 1 << 10;
         const BigInt = 1 << 11;
+        const WeakRef = 1 << 12;
+        const DOMException = 1 << 13;
     }
 }
 
@@ -485,7 +449,7 @@ bitflags! {
 }
 
 impl<'rt> Context<'rt> {
-    pub fn get_runtime(&self) -> &'rt Runtime {
+    pub fn runtime(&self) -> &'rt Runtime {
         self.rt
     }
 
@@ -604,6 +568,8 @@ impl<'rt> Context<'rt> {
                 (Intrinsics::TypedArrays, JS_AddIntrinsicTypedArrays),
                 (Intrinsics::Promise, JS_AddIntrinsicPromise),
                 (Intrinsics::BigInt, JS_AddIntrinsicBigInt),
+                (Intrinsics::WeakRef, JS_AddIntrinsicWeakRef),
+                (Intrinsics::DOMException, JS_AddIntrinsicDOMException),
             ];
 
             for (intrinsic, add_fn) in intrinsic_func {
@@ -730,13 +696,13 @@ impl<'rt> Context<'rt> {
     pub fn is_error(&self, value: &Value) -> bool {
         self.enforce_value_in_same_runtime(value);
 
-        unsafe { JS_IsError(self.ptr.as_ptr(), value.as_raw()) }
+        unsafe { JS_IsError(value.as_raw()) }
     }
 
     pub fn is_uncatchable_error(&self, value: &Value) -> bool {
         self.enforce_value_in_same_runtime(value);
 
-        unsafe { JS_IsUncatchableError(self.ptr.as_ptr(), value.as_raw()) }
+        unsafe { JS_IsUncatchableError(value.as_raw()) }
     }
 
     pub fn set_uncatchable_error(&self, value: &Value, flag: bool) {
@@ -1109,13 +1075,10 @@ impl<'rt> Context<'rt> {
         self.try_catch(|| unsafe { Value::from_raw(self.rt, JS_NewArray(self.ptr.as_ptr())) })
     }
 
-    pub fn is_array(&self, value: &Value) -> Result<bool, Value<'rt>> {
+    pub fn is_array(&self, value: &Value) -> bool {
         self.enforce_value_in_same_runtime(value);
 
-        self.try_catch(|| unsafe {
-            let ret = JS_IsArray(self.ptr.as_ptr(), value.as_raw());
-            if ret < 0 { Err(Exception) } else { Ok(ret != 0) }
-        })
+        unsafe { JS_IsArray(value.as_raw()) }
     }
 
     pub fn get_length(&self, value: &Value) -> Result<i64, Value<'rt>> {
