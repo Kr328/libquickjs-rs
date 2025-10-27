@@ -1,6 +1,6 @@
 use crate::{CallOptions, Context, NativeFunction, PropertyDescriptorFlags, Value};
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct NativeProperty<
     'rt,
     G = for<'r> fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>>,
@@ -13,6 +13,21 @@ pub struct NativeProperty<
     pub getter: Option<NativeFunction<G>>,
     pub setter: Option<NativeFunction<S>>,
     pub flags: PropertyDescriptorFlags,
+}
+
+impl<'rt, G, S> Default for NativeProperty<'rt, G, S>
+where
+    G: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
+    S: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
+{
+    fn default() -> Self {
+        Self {
+            value: Value::Undefined,
+            getter: None,
+            setter: None,
+            flags: PropertyDescriptorFlags::empty(),
+        }
+    }
 }
 
 pub trait NativePropertyExt<'rt> {
