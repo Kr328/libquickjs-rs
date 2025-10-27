@@ -41,13 +41,13 @@ where
 }
 
 pub trait NativeFunctionExt<'rt> {
-    fn set_native_function<F>(self, obj: &Value, name: &str, func: F) -> Result<bool, Value<'rt>>
+    fn define_native_function<F>(self, obj: &Value, name: &str, func: F) -> Result<bool, Value<'rt>>
     where
         F: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static;
 }
 
 impl<'rt> NativeFunctionExt<'rt> for Context<'rt> {
-    fn set_native_function<F>(self, obj: &Value, name: &str, func: F) -> Result<bool, Value<'rt>>
+    fn define_native_function<F>(self, obj: &Value, name: &str, func: F) -> Result<bool, Value<'rt>>
     where
         F: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
     {
