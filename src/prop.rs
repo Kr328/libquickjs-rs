@@ -15,9 +15,9 @@ pub struct NativeProperty<
     pub flags: PropertyDescriptorFlags,
 }
 
-pub trait NativePropertyExt<'rt>: Sized {
+pub trait NativePropertyExt<'rt> {
     fn define_native_property<'a, G, S>(
-        self,
+        &self,
         obj: &Value,
         name: &str,
         prop: NativeProperty<'a, G, S>,
@@ -28,7 +28,12 @@ pub trait NativePropertyExt<'rt>: Sized {
 }
 
 impl<'rt> NativePropertyExt<'rt> for Context<'rt> {
-    fn define_native_property<'a, G, S>(self, obj: &Value, name: &str, prop: NativeProperty<'a, G, S>) -> Result<bool, Value<'rt>>
+    fn define_native_property<'a, G, S>(
+        &self,
+        obj: &Value,
+        name: &str,
+        prop: NativeProperty<'a, G, S>,
+    ) -> Result<bool, Value<'rt>>
     where
         G: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
         S: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
