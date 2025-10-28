@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use libquickjs::{EvalFlags, GlobalValue, Runtime, Value, serde::from_value};
+use libquickjs::{EvalFlags, Runtime, serde::from_value};
 use serde::Deserialize;
 
 #[test]
@@ -24,7 +24,6 @@ fn test_deserialize_object() {
         a: i32,
         b: i32,
         c: NestedObject,
-        e: GlobalValue,
     }
 
     let obj: Object = from_value(&ctx, &obj).unwrap();
@@ -32,7 +31,6 @@ fn test_deserialize_object() {
     assert_eq!(obj.a, 1);
     assert_eq!(obj.b, 2);
     assert_eq!(obj.c.d, 3);
-    assert_eq!(obj.e.to_local(&rt).unwrap(), Value::Int32(42));
 }
 
 #[test]
@@ -87,17 +85,23 @@ fn test_deserialize_arrays() {
 
     // Test mixed type array
     let mixed_val = ctx
-        .eval_global(None, r#"([1, "two", 3.0, false])"#, "test.js", EvalFlags::STRICT)
+        .eval_global(None, r#"([1, "two", 3, false, [1, 2]])"#, "test.js", EvalFlags::STRICT)
         .unwrap();
     #[derive(Deserialize, Debug, PartialEq)]
     enum MixedValue {
         Number(i32),
         String(String),
-        Float(f64),
         Boolean(bool),
+        Array(Vec<i32>),
     }
     let mixed_result: Vec<MixedValue> = from_value(&ctx, &mixed_val).unwrap();
-    assert_eq!(mixed_result.len(), 4);
+    assert_eq!(mixed_result.len(), 5);
+
+    assert_eq!(mixed_result[0], MixedValue::Number(1));
+    assert_eq!(mixed_result[1], MixedValue::String("two".to_string()));
+    assert_eq!(mixed_result[2], MixedValue::Number(3));
+    assert_eq!(mixed_result[3], MixedValue::Boolean(false));
+    assert_eq!(mixed_result[4], MixedValue::Array(vec![1, 2]));
 }
 
 #[test]

@@ -1,9 +1,6 @@
 #![cfg(feature = "serde")]
 
-use libquickjs::{
-    EvalFlags, GlobalValue, NativeFunction, Runtime, Value,
-    serde::{from_value, to_value},
-};
+use libquickjs::{EvalFlags, Runtime, Value, serde::to_value};
 use serde::{Serialize, Serializer};
 
 #[test]
@@ -325,44 +322,4 @@ fn test_serialize_bytes() {
             assert_eq!(buffer, bytes);
         }
     }
-}
-
-#[test]
-fn test_serialize_custom_object() {
-    let rt = Runtime::new();
-    let ctx = rt.new_context();
-
-    let func = ctx
-        .new_object_class(
-            NativeFunction::new(|ctx, _, _, args, _| {
-                let a: i32 = from_value(ctx, &args[0]).unwrap();
-                let b: i32 = from_value(ctx, &args[1]).unwrap();
-
-                Ok(Value::Int32(a + b))
-            }),
-            None,
-        )
-        .unwrap();
-
-    ctx.set_property_str(&ctx.get_global_object(), "add", func.clone()).unwrap();
-    let ret = ctx.eval_global(None, "add(1, 2)", "test.js", EvalFlags::empty()).unwrap();
-    assert_eq!(ret, Value::Int32(3));
-
-    #[derive(Serialize)]
-    struct Funcs {
-        add: GlobalValue,
-    }
-
-    let funcs = Funcs {
-        add: ctx.runtime().new_global_value(&func).unwrap(),
-    };
-    let funcs = to_value(&ctx, &funcs).expect("serialize funcs");
-    let ret = ctx
-        .invoke(
-            &funcs,
-            &ctx.value_to_atom(&ctx.new_string("add").unwrap()).unwrap(),
-            &[Value::Int32(1), Value::Int32(2)],
-        )
-        .unwrap();
-    assert_eq!(ret, Value::Int32(3));
 }

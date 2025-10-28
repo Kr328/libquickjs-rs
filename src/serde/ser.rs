@@ -18,17 +18,13 @@ pub struct ValueSerializer<'a, 'rt> {
 }
 
 impl<'a, 'rt> ValueSerializer<'a, 'rt> {
-    pub fn new(ctx: &'a Context<'rt>, atom_pool: &'a AtomPool<'rt>) -> Self {
+    fn new(ctx: &'a Context<'rt>, atom_pool: &'a AtomPool<'rt>) -> Self {
         Self {
             parent: None,
             ctx,
             key: None,
             atom_pool,
         }
-    }
-
-    pub fn context(&self) -> &'a Context<'rt> {
-        self.ctx
     }
 }
 

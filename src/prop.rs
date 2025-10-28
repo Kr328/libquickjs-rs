@@ -12,7 +12,9 @@ pub struct NativeProperty<
     pub value: Value<'rt>,
     pub getter: Option<NativeFunction<G>>,
     pub setter: Option<NativeFunction<S>>,
-    pub flags: PropertyDescriptorFlags,
+    pub no_enumerable: bool,
+    pub no_configurable: bool,
+    pub writable: bool,
 }
 
 impl<'rt, G, S> Default for NativeProperty<'rt, G, S>
@@ -25,7 +27,9 @@ where
             value: Value::Undefined,
             getter: None,
             setter: None,
-            flags: PropertyDescriptorFlags::empty(),
+            no_enumerable: false,
+            no_configurable: false,
+            writable: true,
         }
     }
 }
@@ -54,15 +58,43 @@ impl<'rt> NativePropertyExt<'rt> for Context<'rt> {
         S: for<'r> Fn(&Context<'r>, &Value, &Value, &[Value], CallOptions) -> Result<Value<'r>, Value<'r>> + Send + 'static,
     {
         let atom = self.new_atom(name)?;
+        let mut flags = PropertyDescriptorFlags::empty();
+
+        if !prop.no_enumerable {
+            flags |= PropertyDescriptorFlags::ENUMERABLE;
+        }
+        if !prop.no_configurable {
+            flags |= PropertyDescriptorFlags::CONFIGURABLE;
+        }
+        if prop.writable {
+            flags |= PropertyDescriptorFlags::WRITABLE;
+        }
+
         let getter = match prop.getter {
-            Some(getter) => self.new_object_class(getter, None)?,
-            None => Value::Undefined,
-        };
-        let setter = match prop.setter {
-            Some(setter) => self.new_object_class(setter, None)?,
+            Some(getter) => {
+                flags |= PropertyDescriptorFlags::HAS_GET;
+
+                self.new_object_class(getter, None)?
+            }
             None => Value::Undefined,
         };
 
-        self.define_property(obj, &atom, &prop.value, &getter, &setter, prop.flags)
+        let setter = match prop.setter {
+            Some(setter) => {
+                flags |= PropertyDescriptorFlags::HAS_SET;
+
+                self.new_object_class(setter, None)?
+            }
+            None => Value::Undefined,
+        };
+
+        match &prop.value {
+            Value::Undefined => {}
+            _ => {
+                flags |= PropertyDescriptorFlags::HAS_VALUE;
+            }
+        }
+
+        self.define_property(obj, &atom, &prop.value, &getter, &setter, flags)
     }
 }

@@ -1,6 +1,9 @@
 use serde::{
     Deserialize, Deserializer,
-    de::{DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor, value::SeqDeserializer},
+    de::{
+        DeserializeSeed, EnumAccess, Error, IntoDeserializer, MapAccess, SeqAccess, Unexpected, VariantAccess, Visitor,
+        value::SeqDeserializer,
+    },
 };
 
 use crate::{
@@ -21,7 +24,7 @@ pub struct ValueDeserializer<'a, 'rt> {
 }
 
 impl<'a, 'rt> ValueDeserializer<'a, 'rt> {
-    pub fn new(ctx: &'a Context<'rt>, value: &'a Value<'rt>, atom_pool: &'a AtomPool<'rt>) -> Self {
+    fn new(ctx: &'a Context<'rt>, value: &'a Value<'rt>, atom_pool: &'a AtomPool<'rt>) -> Self {
         Self {
             parent: None,
             ctx,
@@ -29,14 +32,6 @@ impl<'a, 'rt> ValueDeserializer<'a, 'rt> {
             value,
             atom_pool,
         }
-    }
-
-    pub fn context(&self) -> &'a Context<'rt> {
-        self.ctx
-    }
-
-    pub fn value(&self) -> &'a Value<'rt> {
-        self.value
     }
 }
 
@@ -366,15 +361,16 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
                             .get_property(self.object.value, &atom.atom)
                             .map_err(|err| self.object.value_to_error(&err))?;
 
-                        let deserializer = SeqDeserializer::new(
+                        let deserializer = self.object.derive_child_value(&atom.atom, &key_as_value);
+                        let seq_deserializer = SeqDeserializer::new(
                             [&key_as_value, &value_as_value]
-                                .map(|v| self.object.derive_child_value(&atom.atom, v))
+                                .map(|v| deserializer.derive_child_value(&atom.atom, v))
                                 .into_iter(),
                         );
 
-                        seed.deserialize(deserializer)
+                        seed.deserialize(seq_deserializer)
                             .map(Some)
-                            .map_err(|err| self.object.fix_path(err))
+                            .map_err(|err| deserializer.fix_path(err))
                     } else {
                         Ok(None)
                     }
@@ -436,9 +432,9 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
                     let deserializer = self.object.derive_child_value(&atom.atom, &key_as_value);
 
                     let ret = seed
-                        .deserialize(deserializer)
+                        .deserialize(deserializer.clone())
                         .map(Some)
-                        .map_err(|err| self.object.fix_path(err));
+                        .map_err(|err| deserializer.fix_path(err));
 
                     self.next_atom_for_value = Some(atom);
 
@@ -461,7 +457,8 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
                     .map_err(|err| self.object.value_to_error(&err))?;
                 let deserializer = self.object.derive_child_value(&key.atom, &value_as_value);
 
-                seed.deserialize(deserializer).map_err(|err| self.object.fix_path(err))
+                seed.deserialize(deserializer.clone())
+                    .map_err(|err| deserializer.fix_path(err))
             }
         }
 
@@ -509,78 +506,131 @@ impl<'a, 'rt> Deserializer<'rt> for ValueDeserializer<'a, 'rt> {
     where
         V: Visitor<'rt>,
     {
-        struct ObjectAsEnumAccess<'a, 'rt> {
-            object: &'a ValueDeserializer<'a, 'rt>,
+        if matches!(self.value, Value::Object(_)) {
+            struct ObjectAsEnumAccess<'a, 'rt> {
+                object: &'a ValueDeserializer<'a, 'rt>,
+            }
+
+            impl<'a, 'rt> VariantAccess<'rt> for ObjectAsEnumAccess<'a, 'rt> {
+                type Error = super::Error;
+
+                fn unit_variant(self) -> Result<(), Self::Error> {
+                    Ok(())
+                }
+
+                fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
+                where
+                    T: DeserializeSeed<'rt>,
+                {
+                    seed.deserialize(self.object.clone())
+                }
+
+                fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+                where
+                    V: Visitor<'rt>,
+                {
+                    self.object.clone().deserialize_tuple(len, visitor)
+                }
+
+                fn struct_variant<V>(self, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error>
+                where
+                    V: Visitor<'rt>,
+                {
+                    self.object.clone().deserialize_struct("", fields, visitor)
+                }
+            }
+
+            impl<'a, 'rt> EnumAccess<'rt> for ObjectAsEnumAccess<'a, 'rt> {
+                type Error = super::Error;
+                type Variant = Self;
+
+                fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+                where
+                    V: DeserializeSeed<'rt>,
+                {
+                    let constructor_atom = self
+                        .object
+                        .atom_pool
+                        .get_or_create(self.object.ctx, "constructor")
+                        .map_err(|err| self.object.value_to_error(&err))?;
+                    let name_atom = self
+                        .object
+                        .atom_pool
+                        .get_or_create(self.object.ctx, "name")
+                        .map_err(|err| self.object.value_to_error(&err))?;
+                    let constructor = self
+                        .object
+                        .ctx
+                        .get_property(self.object.value, &constructor_atom)
+                        .map_err(|err| self.object.value_to_error(&err))?;
+                    let name = self
+                        .object
+                        .ctx
+                        .get_property(&constructor, &name_atom)
+                        .map_err(|err| self.object.value_to_error(&err))?;
+
+                    let deserializer = self.object.derive_child_value(&constructor_atom, &name);
+                    let variant_name = seed
+                        .deserialize(deserializer.clone())
+                        .map_err(|err| deserializer.fix_path(err))?;
+                    Ok((variant_name, self))
+                }
+            }
+
+            visitor
+                .visit_enum(ObjectAsEnumAccess { object: &self })
+                .map_err(|err| self.fix_path(err))
+        } else {
+            struct ValueAsEnumAccess<'a, 'rt> {
+                value: &'a ValueDeserializer<'a, 'rt>,
+            }
+
+            impl<'a, 'rt> VariantAccess<'rt> for ValueAsEnumAccess<'a, 'rt> {
+                type Error = super::Error;
+
+                fn unit_variant(self) -> Result<(), Self::Error> {
+                    Ok(())
+                }
+
+                fn newtype_variant_seed<T>(self, _: T) -> Result<T::Value, Self::Error>
+                where
+                    T: DeserializeSeed<'rt>,
+                {
+                    Err(Error::invalid_type(Unexpected::NewtypeVariant, &"unexpected newtype variant"))
+                }
+
+                fn tuple_variant<V>(self, _: usize, _: V) -> Result<V::Value, Self::Error>
+                where
+                    V: Visitor<'rt>,
+                {
+                    Err(Error::invalid_type(Unexpected::TupleVariant, &"unexpected tuple variant"))
+                }
+
+                fn struct_variant<V>(self, _: &'static [&'static str], _: V) -> Result<V::Value, Self::Error>
+                where
+                    V: Visitor<'rt>,
+                {
+                    Err(Error::invalid_type(Unexpected::StructVariant, &"unexpected struct variant"))
+                }
+            }
+
+            impl<'a, 'rt> EnumAccess<'rt> for ValueAsEnumAccess<'a, 'rt> {
+                type Error = super::Error;
+                type Variant = Self;
+
+                fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+                where
+                    V: DeserializeSeed<'rt>,
+                {
+                    let variant_name = seed.deserialize(self.value.clone()).map_err(|err| self.value.fix_path(err))?;
+                    Ok((variant_name, self))
+                }
+            }
+
+            visitor
+                .visit_enum(ValueAsEnumAccess { value: &self })
+                .map_err(|err| self.fix_path(err))
         }
-
-        impl<'a, 'rt> VariantAccess<'rt> for ObjectAsEnumAccess<'a, 'rt> {
-            type Error = super::Error;
-
-            fn unit_variant(self) -> Result<(), Self::Error> {
-                Ok(())
-            }
-
-            fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
-            where
-                T: DeserializeSeed<'rt>,
-            {
-                seed.deserialize(self.object.clone())
-            }
-
-            fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
-            where
-                V: Visitor<'rt>,
-            {
-                self.object.clone().deserialize_tuple(len, visitor)
-            }
-
-            fn struct_variant<V>(self, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error>
-            where
-                V: Visitor<'rt>,
-            {
-                self.object.clone().deserialize_struct("", fields, visitor)
-            }
-        }
-
-        impl<'a, 'rt> EnumAccess<'rt> for ObjectAsEnumAccess<'a, 'rt> {
-            type Error = super::Error;
-            type Variant = Self;
-
-            fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
-            where
-                V: DeserializeSeed<'rt>,
-            {
-                let constructor_atom = self
-                    .object
-                    .atom_pool
-                    .get_or_create(self.object.ctx, "constructor")
-                    .map_err(|err| self.object.value_to_error(&err))?;
-                let name_atom = self
-                    .object
-                    .atom_pool
-                    .get_or_create(self.object.ctx, "name")
-                    .map_err(|err| self.object.value_to_error(&err))?;
-                let constructor = self
-                    .object
-                    .ctx
-                    .get_property(self.object.value, &constructor_atom)
-                    .map_err(|err| self.object.value_to_error(&err))?;
-                let name = self
-                    .object
-                    .ctx
-                    .get_property(&constructor, &name_atom)
-                    .map_err(|err| self.object.value_to_error(&err))?;
-
-                let variant_name = seed
-                    .deserialize(self.object.derive_child_value(&constructor_atom, &name))
-                    .map_err(|err| self.object.fix_path(err))?;
-                Ok((variant_name, self))
-            }
-        }
-
-        visitor
-            .visit_enum(ObjectAsEnumAccess { object: &self })
-            .map_err(|err| self.fix_path(err))
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
